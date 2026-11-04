@@ -82,7 +82,7 @@ final class Store {
     // MARK: Lookup
 
     func item(_ sku: String) -> ItemInfo? { itemIndex[sku] }
-    func items(inBin code: String) -> [ItemInfo] { (binIndex[code] ?? []).compactMap { itemIndex[$0] } }
+    func binContents(_ code: String) -> [ItemInfo] { (binIndex[code] ?? []).compactMap { itemIndex[$0] } }
 
     private func rebuild() {
         var order: [String] = []

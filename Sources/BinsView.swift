@@ -23,7 +23,7 @@ struct BinsView: View {
                                 HStack {
                                     Text(code).font(.headline.monospaced())
                                     Spacer()
-                                    Text("\(store.items(inBin: code).count) SKUs").font(.subheadline).foregroundStyle(.secondary)
+                                    Text("\(store.binContents(code).count) SKUs").font(.subheadline).foregroundStyle(.secondary)
                                 }
                             }
                         }
@@ -49,7 +49,7 @@ struct BinDetail: View {
     @Environment(Store.self) private var store
 
     var body: some View {
-        let list = store.items(inBin: code)
+        let list = store.binContents(code)
         List {
             Section("\(list.count) SKUs in \(code)") {
                 ForEach(list) { it in

@@ -116,7 +116,7 @@ struct ItemDetail: View {
                     if !item.family.isEmpty { LabeledContent("Family", value: item.family) }
                 }
                 if item.available {
-                    Section("Bins") {
+                    Section {
                         ForEach(item.bins, id: \.self) { code in
                             NavigationLink(value: BinRef(code: code)) {
                                 VStack(alignment: .leading) {
@@ -131,7 +131,7 @@ struct ItemDetail: View {
                         }
                         Button("Add another bin", systemImage: "plus.circle") { assigning = true }
                         Button("Mark unavailable", systemImage: "xmark.circle", role: .destructive) { confirmClear = true }
-                    } footer: { Text("Swipe a bin to move or remove it. Removing the last bin makes the item unavailable.") }
+                    } header: { Text("Bins") } footer: { Text("Swipe a bin to move or remove it. Removing the last bin makes the item unavailable.") }
                 } else {
                     Section {
                         Label("Unavailable: no bin in the sheet", systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange)
@@ -201,7 +201,7 @@ struct AssignBinSheet: View {
                         ForEach(suggestions, id: \.self) { b in
                             Button { text = b } label: {
                                 HStack { Text(b).font(.body.monospaced()); Spacer()
-                                    Text("\(store.items(inBin: b).count) SKUs").font(.caption).foregroundStyle(.secondary) }
+                                    Text("\(store.binContents(b).count) SKUs").font(.caption).foregroundStyle(.secondary) }
                             }.foregroundStyle(.primary)
                         }
                     }
