@@ -12,6 +12,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.aswin.binflow
         PRODUCT_NAME: BinFlow
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         SWIFT_VERSION: "5.0"
         TARGETED_DEVICE_FAMILY: "1"
         MARKETING_VERSION: "1.0"
