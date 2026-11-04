@@ -1,0 +1,24 @@
+name: BinFlow
+options:
+  bundleIdPrefix: com.aswin
+  deploymentTarget:
+    iOS: "17.0"
+targets:
+  BinFlow:
+    type: application
+    platform: iOS
+    sources: [Sources]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.aswin.binflow
+        PRODUCT_NAME: BinFlow
+        SWIFT_VERSION: "5.0"
+        TARGETED_DEVICE_FAMILY: "1"
+        MARKETING_VERSION: "1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: BinFlow
+        INFOPLIST_KEY_NSCameraUsageDescription: "Scan barcodes to find items and bins."
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: UIInterfaceOrientationPortrait
