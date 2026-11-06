@@ -153,6 +153,23 @@ final class Store {
         do { try load() } catch { self.error = "Couldn't reload: \(error.localizedDescription)" }
     }
 
+    /// Forgets the connected spreadsheet (the file itself is not touched).
+    func disconnect() {
+        if scoped, let old = fileURL { old.stopAccessingSecurityScopedResource() }
+        scoped = false
+        fileURL = nil
+        UserDefaults.standard.removeObject(forKey: bookmarkKey)
+        rows = []; workbook = nil
+        items = []; allBins = []; itemIndex = [:]; binIndex = [:]
+        loadedData = Data(); loadedStamp = nil
+        fileName = ""; hasFile = false
+    }
+
+    func clearLog() {
+        log = []
+        UserDefaults.standard.removeObject(forKey: logKey)
+    }
+
     /// Called when the app comes to the foreground: picks up edits made in Excel.
     func refreshFromDisk() {
         guard hasFile, let url = fileURL, modDate(url) != loadedStamp else { return }

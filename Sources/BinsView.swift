@@ -14,22 +14,28 @@ struct BinsView: View {
     }
 
     var body: some View {
-        NavigationStack {
+        Group {
             List {
                 ForEach(zones) { z in
-                    Section("Zone \(z.id) · \(z.bins.count) bins") {
+                    Section {
                         ForEach(z.bins, id: \.self) { code in
                             NavigationLink(value: BinRef(code: code)) {
                                 HStack {
-                                    Text(code).font(.headline.monospaced())
+                                    Text(code).font(.title3.monospaced().weight(.bold)).foregroundStyle(Theme.accent)
                                     Spacer()
-                                    Text("\(store.binContents(code).count) SKUs").font(.subheadline).foregroundStyle(.secondary)
+                                    Tag(text: "\(store.binContents(code).count) SKUs")
                                 }
-                            }
+                            }.cardRow()
                         }
+                    } header: {
+                        HStack {
+                            Text("Zone \(z.id)").font(.headline)
+                            Text("\(z.bins.count) bins").font(.subheadline).foregroundStyle(.secondary)
+                        }.textCase(nil)
                     }
                 }
             }
+            .cardList()
             .overlay {
                 if store.allBins.isEmpty {
                     ContentUnavailableView("No bins yet", systemImage: "square.grid.3x3",
@@ -39,7 +45,6 @@ struct BinsView: View {
             .navigationTitle("Bins")
             .searchable(text: $text, prompt: "Bin code")
             .toolbar { FileMenu() }
-            .binflowDestinations()
         }
     }
 }
@@ -51,15 +56,17 @@ struct BinDetail: View {
     var body: some View {
         let list = store.binContents(code)
         List {
-            Section("\(list.count) SKUs in \(code)") {
-                ForEach(list) { it in
-                    NavigationLink(value: it.sku) { ItemRow(item: it) }
-                        .swipeActions {
-                            Button("Remove", role: .destructive) { store.removeBin(sku: it.sku, code: code) }
-                        }
-                }
+            Text("\(list.count) SKUs in \(code)").font(.subheadline.weight(.semibold))
+                .foregroundStyle(.secondary).plainRow()
+            ForEach(list) { it in
+                NavigationLink(value: it.sku) { ItemRow(item: it) }
+                    .cardRow()
+                    .swipeActions {
+                        Button("Remove", role: .destructive) { store.removeBin(sku: it.sku, code: code) }
+                    }
             }
         }
+        .cardList()
         .overlay { if list.isEmpty { ContentUnavailableView("Empty", systemImage: "tray", description: Text("No SKUs are in this bin.")) } }
         .navigationTitle(code).navigationBarTitleDisplayMode(.inline)
     }

@@ -3,8 +3,8 @@ import SwiftUI
 struct ItemRow: View {
     let item: ItemInfo
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            VStack(alignment: .leading, spacing: 3) {
+        HStack(alignment: .center, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
                 Text(item.name.isEmpty ? item.sku : item.name).font(.headline).lineLimit(2)
                 Text(item.sku).font(.caption.monospaced()).foregroundStyle(.secondary)
                 let sub = [item.gender, item.category, item.family].filter { !$0.isEmpty }.joined(separator: " · ")
@@ -12,13 +12,16 @@ struct ItemRow: View {
             }
             Spacer(minLength: 8)
             if item.available {
-                Text(item.bins.joined(separator: "\n"))
-                    .font(.subheadline.monospaced().weight(.semibold)).multilineTextAlignment(.trailing)
-                    .foregroundStyle(Theme.accent)
+                VStack(alignment: .trailing, spacing: 4) {
+                    ForEach(Array(item.bins.prefix(2)), id: \.self) { BinChip(code: $0) }
+                    if item.bins.count > 2 {
+                        Text("+\(item.bins.count - 2) more").font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
+                    }
+                }
             } else {
                 Text("Unavailable").font(.caption.weight(.semibold))
-                    .padding(.horizontal, 8).padding(.vertical, 4)
-                    .background(.orange.opacity(0.18), in: Capsule()).foregroundStyle(.orange)
+                    .padding(.horizontal, 10).padding(.vertical, 5)
+                    .background(Theme.warn.opacity(0.15), in: Capsule()).foregroundStyle(Theme.warn)
             }
         }
     }
@@ -30,6 +33,8 @@ struct FindView: View {
     @State private var filter = Filter.all
     @State private var scanning = false
     @State private var adding = false
+
+    init(initialText: String = "") { _text = State(initialValue: initialText) }
 
     enum Filter: String, CaseIterable { case all = "All", available = "Available", unavailable = "Unavailable" }
 
@@ -45,21 +50,41 @@ struct FindView: View {
         }
     }
 
-    var body: some View {
-        NavigationStack {
-            List {
-                Section {
-                    Picker("Show", selection: $filter) {
-                        ForEach(Filter.allCases, id: \.self) { Text($0.rawValue).tag($0) }
-                    }.pickerStyle(.segmented)
-                }.listRowBackground(Color.clear).listRowInsets(EdgeInsets())
+    private func count(_ f: Filter) -> Int {
+        switch f {
+        case .all: return store.items.count
+        case .available: return store.items.filter { $0.available }.count
+        case .unavailable: return store.items.filter { !$0.available }.count
+        }
+    }
+    private func tint(_ f: Filter) -> Color { f == .unavailable ? Theme.warn : Theme.accent }
 
-                Section("\(results.count) items") {
-                    ForEach(results) { it in
-                        NavigationLink(value: it.sku) { ItemRow(item: it) }
+    private var stats: some View {
+        HStack(spacing: 10) {
+            ForEach(Filter.allCases, id: \.self) { f in
+                Button { withAnimation(.snappy) { filter = f } } label: {
+                    VStack(spacing: 2) {
+                        Text("\(count(f))").font(.title2.bold().monospacedDigit())
+                        Text(f.rawValue).font(.caption.weight(.medium))
                     }
+                    .frame(maxWidth: .infinity).padding(.vertical, 12)
+                    .background(filter == f ? tint(f) : Theme.card, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    .foregroundStyle(filter == f ? Color.black : Color.primary)
+                }.buttonStyle(.plain)
+            }
+        }
+    }
+
+    var body: some View {
+        Group {
+            List {
+                stats.plainRow()
+
+                ForEach(results) { it in
+                    NavigationLink(value: it.sku) { ItemRow(item: it) }.cardRow()
                 }
             }
+            .cardList()
             .overlay {
                 if store.items.isEmpty {
                     ContentUnavailableView("No items", systemImage: "shippingbox", description: Text("Sheet1 has no rows with a Product SKU."))
@@ -71,14 +96,13 @@ struct FindView: View {
             .searchable(text: $text, prompt: "SKU, name, family or bin")
             .toolbar {
                 ToolbarItemGroup(placement: .topBarTrailing) {
-                    Button { scanning = true } label: { Image(systemName: "barcode.viewfinder") }
+                    Button { scanning = true } label: { Image(systemName: "text.viewfinder") }
                     Button { adding = true } label: { Image(systemName: "plus") }
                     FileMenu()
                 }
             }
             .sheet(isPresented: $scanning) { ScanSheet { text = $0 } }
             .sheet(isPresented: $adding) { EditItemSheet(sku: nil) }
-            .binflowDestinations()
         }
     }
 }
@@ -109,19 +133,25 @@ struct ItemDetail: View {
         if let item = store.item(sku) {
             List {
                 Section {
-                    LabeledContent("SKU", value: item.sku)
-                    if !item.name.isEmpty { LabeledContent("Name", value: item.name) }
-                    if !item.gender.isEmpty { LabeledContent("Gender", value: item.gender) }
-                    if !item.category.isEmpty { LabeledContent("Category", value: item.category) }
-                    if !item.family.isEmpty { LabeledContent("Family", value: item.family) }
+                    VStack(alignment: .leading, spacing: 10) {
+                        StatusPill(available: item.available)
+                        Text(item.name.isEmpty ? item.sku : item.name).font(.title2.bold())
+                        Text(item.sku).font(.subheadline.monospaced()).foregroundStyle(.secondary)
+                        let tags = [item.gender, item.category, item.family].filter { !$0.isEmpty }
+                        if !tags.isEmpty {
+                            HStack(spacing: 6) { ForEach(tags, id: \.self) { Tag(text: $0) } }
+                        }
+                    }
+                    .padding(.vertical, 6)
                 }
                 if item.available {
                     Section {
                         ForEach(item.bins, id: \.self) { code in
                             NavigationLink(value: BinRef(code: code)) {
-                                VStack(alignment: .leading) {
-                                    Text(code).font(.title3.monospaced().weight(.bold))
-                                    Text("Zone \(BinCode.zone(code))").font(.caption).foregroundStyle(.secondary)
+                                HStack {
+                                    Text(code).font(.title2.monospaced().weight(.bold)).foregroundStyle(Theme.accent)
+                                    Spacer()
+                                    Tag(text: "Zone \(BinCode.zone(code))")
                                 }
                             }
                             .swipeActions {
@@ -129,15 +159,16 @@ struct ItemDetail: View {
                                 Button("Move") { moving = MoveTarget(id: code) }.tint(.orange)
                             }
                         }
-                        Button("Add another bin", systemImage: "plus.circle") { assigning = true }
+                        Button("Add another bin", systemImage: "plus.circle.fill") { assigning = true }
                         Button("Mark unavailable", systemImage: "xmark.circle", role: .destructive) { confirmClear = true }
                     } header: { Text("Bins") } footer: { Text("Swipe a bin to move or remove it. Removing the last bin makes the item unavailable.") }
                 } else {
                     Section {
-                        Label("Unavailable: no bin in the sheet", systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                        Label("No bin in the sheet", systemImage: "exclamationmark.triangle.fill").foregroundStyle(Theme.warn)
                         Button { assigning = true } label: {
-                            Label("Stock arrived: assign bin", systemImage: "shippingbox.and.arrow.backward").fontWeight(.semibold)
-                        }
+                            Label("Stock arrived: assign bin", systemImage: "shippingbox.and.arrow.backward")
+                                .fontWeight(.semibold).frame(maxWidth: .infinity)
+                        }.buttonStyle(.borderedProminent).controlSize(.large).foregroundStyle(.black)
                     }
                 }
             }

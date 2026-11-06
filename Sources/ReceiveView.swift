@@ -20,23 +20,23 @@ struct ReceiveView: View {
     }
 
     var body: some View {
-        NavigationStack {
+        Group {
             List {
-                Section {
+                VStack(alignment: .leading, spacing: 8) {
                     Picker("Show", selection: $onlyUnavailable) {
                         Text("Unavailable").tag(true)
                         Text("All items").tag(false)
                     }.pickerStyle(.segmented)
-                } footer: { Text("Tap an item when its stock arrives, then enter the bin it goes into. The Bin cell in your sheet is filled in for you.") }
-                .listRowBackground(Color.clear).listRowInsets(EdgeInsets())
+                    Text("Tap an item when its stock arrives, then enter the bin it goes into.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }.plainRow()
 
-                Section("\(results.count) items") {
-                    ForEach(results) { it in
-                        Button { target = MoveTarget(id: it.sku) } label: { ItemRow(item: it) }
-                            .foregroundStyle(.primary)
-                    }
+                ForEach(results) { it in
+                    Button { target = MoveTarget(id: it.sku) } label: { ItemRow(item: it) }
+                        .foregroundStyle(.primary).cardRow()
                 }
             }
+            .cardList()
             .overlay {
                 if results.isEmpty {
                     if text.isEmpty { ContentUnavailableView("Nothing waiting", systemImage: "checkmark.circle", description: Text("Every item has a bin.")) }
@@ -47,7 +47,7 @@ struct ReceiveView: View {
             .searchable(text: $text, prompt: "SKU or name")
             .toolbar {
                 ToolbarItemGroup(placement: .topBarTrailing) {
-                    Button { scanning = true } label: { Image(systemName: "barcode.viewfinder") }
+                    Button { scanning = true } label: { Image(systemName: "text.viewfinder") }
                     Button { adding = true } label: { Image(systemName: "plus") }
                 }
             }

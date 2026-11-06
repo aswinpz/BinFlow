@@ -24,17 +24,20 @@ struct ActivityView: View {
     }
 
     var body: some View {
-        NavigationStack {
+        Group {
             List(store.log) { m in
                 HStack(spacing: 12) {
-                    Image(systemName: icon(m.kind).0).font(.title2).foregroundStyle(icon(m.kind).1)
+                    Image(systemName: icon(m.kind).0).font(.title3).foregroundStyle(icon(m.kind).1)
+                        .frame(width: 40, height: 40)
+                        .background(icon(m.kind).1.opacity(0.14), in: Circle())
                     VStack(alignment: .leading, spacing: 2) {
                         Text(title(m)).font(.headline).lineLimit(2)
                         Text("\(m.sku) · \(m.date, format: .relative(presentation: .named))")
                             .font(.caption).foregroundStyle(.secondary)
                     }
-                }
+                }.cardRow()
             }
+            .cardList()
             .overlay { if store.log.isEmpty { ContentUnavailableView("No activity yet", systemImage: "clock", description: Text("Changes you make in the app show up here.")) } }
             .navigationTitle("Activity")
         }
