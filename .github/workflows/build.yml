@@ -17,6 +17,12 @@ jobs:
           xcodebuild -project BinFlow.xcodeproj -scheme BinFlow \
             -configuration Release -sdk iphoneos -derivedDataPath build \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build
+      - name: Verify embedded widget and shortcut scheme
+        run: |
+          APP="build/Build/Products/Release-iphoneos/BinFlow.app"
+          test -d "$APP/PlugIns/CAMPXWidget.appex"
+          /usr/libexec/PlistBuddy -c 'Print :NSExtension:NSExtensionPointIdentifier' "$APP/PlugIns/CAMPXWidget.appex/Info.plist" | grep -q '^com.apple.widgetkit-extension$'
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleURLTypes:0:CFBundleURLSchemes:0' "$APP/Info.plist" | grep -q '^campxdxb$'
       - name: Package IPA
         run: |
           mkdir Payload

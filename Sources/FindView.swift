@@ -13,7 +13,7 @@ struct ItemRow: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text(item.name.isEmpty ? item.sku : item.name)
                     .font(.headline.weight(.bold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(Theme.primaryText)
                     .lineLimit(2)
                 Text(item.sku)
                     .font(.caption.monospaced())
@@ -47,30 +47,21 @@ struct FindView: View {
     @Environment(Store.self) private var store
     @State private var text = ""
     @State private var filter = Filter.all
+    @State private var results: [ItemInfo] = []
     @State private var scanning = false
     @State private var adding = false
 
     init(initialText: String = "") { _text = State(initialValue: initialText) }
 
-    enum Filter: String, CaseIterable { case all = "All", available = "Available", unavailable = "Unavailable" }
+    enum Filter: String, CaseIterable, Sendable { case all = "All", available = "Available", unavailable = "Unavailable" }
 
-    private var results: [ItemInfo] {
-        let q = text.trimmed
-        return store.items.filter { it in
-            if filter == .available && !it.available { return false }
-            if filter == .unavailable && it.available { return false }
-            if q.isEmpty { return true }
-            return it.sku.localizedCaseInsensitiveContains(q) || it.name.localizedCaseInsensitiveContains(q)
-                || it.family.localizedCaseInsensitiveContains(q) || it.category.localizedCaseInsensitiveContains(q)
-                || it.bins.contains { $0.localizedCaseInsensitiveContains(q) }
-        }
-    }
+    private var searchTaskID: String { "\(store.searchRevision)|\(filter.rawValue)|\(text)" }
 
     private func count(_ f: Filter) -> Int {
         switch f {
         case .all: return store.items.count
-        case .available: return store.items.filter { $0.available }.count
-        case .unavailable: return store.items.filter { !$0.available }.count
+        case .available: return store.availableCount
+        case .unavailable: return store.unavailableCount
         }
     }
     private func tint(_ f: Filter) -> Color { f == .unavailable ? Theme.warn : Theme.accent }
@@ -112,13 +103,38 @@ struct FindView: View {
             .searchable(text: $text, prompt: "SKU, name, family or bin")
             .toolbar {
                 ToolbarItemGroup(placement: .topBarTrailing) {
-                    Button { scanning = true } label: { Image(systemName: "text.viewfinder") }
+                    Button { scanning = true } label: {
+                        Image(systemName: "text.viewfinder")
+                            .font(.system(size: 23, weight: .bold))
+                            .foregroundStyle(Theme.accent)
+                            .frame(width: 46, height: 46)
+                            .background(Theme.accent.opacity(0.14), in: Circle())
+                            .overlay(Circle().stroke(Theme.accent.opacity(0.5), lineWidth: 1))
+                    }
+                    .accessibilityLabel("Scan SKU with OCR")
                     Button { adding = true } label: { Image(systemName: "plus") }
                     FileMenu()
                 }
             }
             .sheet(isPresented: $scanning) { ScanSheet { text = $0 } }
             .sheet(isPresented: $adding) { EditItemSheet(sku: nil) }
+        }
+        .task(id: searchTaskID) {
+            try? await Task.sleep(nanoseconds: 80_000_000)
+            guard !Task.isCancelled else { return }
+            let query = SearchText.normalized(text.trimmed)
+            let activeFilter = filter
+            let snapshot = store.searchDocuments
+            let matches = await Task.detached(priority: .userInitiated) {
+                snapshot.compactMap { document -> ItemInfo? in
+                    if activeFilter == .available && !document.isAvailable { return nil }
+                    if activeFilter == .unavailable && document.isAvailable { return nil }
+                    guard query.isEmpty || document.searchableText.contains(query) else { return nil }
+                    return document.item
+                }
+            }.value
+            guard !Task.isCancelled else { return }
+            results = matches
         }
     }
 }
@@ -160,6 +176,18 @@ struct ItemDetail: View {
                     }
                     .padding(.vertical, 6)
                 }
+                Section {
+                    HStack(spacing: 14) {
+                        CamperProductImage(sku: item.sku, size: 132)
+                        VStack(alignment: .leading, spacing: 8) {
+                            Label("Camper catalog image", systemImage: "globe")
+                                .font(.subheadline.weight(.semibold))
+                            Text("Loads when an internet connection is available. Bin details and spreadsheet search continue to work offline.")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                    .padding(.vertical, 4)
+                } header: { Text("Product") }
                 if item.available {
                     Section {
                         ForEach(item.bins, id: \.self) { code in
@@ -258,15 +286,26 @@ struct AssignBinSheet: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
-                        let err: String?
+                    Button {
                         if let from = moveFrom {
-                            err = store.moveBin(sku: sku, from: from, to: text)
+                            if let err = store.moveBin(sku: sku, from: from, to: text) {
+                                problem = err
+                            } else {
+                                dismiss()
+                            }
                         } else {
-                            err = store.assign(sku: sku, bin: text)
+                            Task {
+                                if let err = await store.assign(sku: sku, bin: text) {
+                                    problem = err
+                                } else {
+                                    dismiss()
+                                }
+                            }
                         }
-                        if let err { problem = err } else { dismiss() }
-                    }.disabled(codes.isEmpty)
+                    } label: {
+                        if store.isSaving { ProgressView() } else { Text("Save") }
+                    }
+                    .disabled(codes.isEmpty || store.isSaving)
                 }
             }
         }
@@ -286,10 +325,22 @@ struct EditItemSheet: View {
     @State private var family = ""
     @State private var bin = ""
     @State private var problem: String?
+    @State private var scanning = false
+    @State private var lastAutoGender = ""
+    @State private var lastAutoFamily = ""
 
     var body: some View {
         NavigationStack {
             Form {
+                Section {
+                    Button { scanning = true } label: {
+                        Label("Scan label to autofill", systemImage: "text.viewfinder")
+                            .font(.headline.weight(.semibold))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    Text("Reads the SKU and product name from the label, then suggests gender from the SKU prefix and family from the first word of the name. Review and edit all fields before saving.")
+                        .font(.caption).foregroundStyle(.secondary)
+                } header: { Text("Quick entry") }
                 Section {
                     TextField("SKU", text: $skuText).textInputAutocapitalization(.characters).autocorrectionDisabled()
                     TextField("Name", text: $name)
@@ -308,15 +359,27 @@ struct EditItemSheet: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(sku == nil ? "Add" : "Save") {
-                        let err: String?
+                    Button {
                         if let sku {
-                            err = store.updateItem(sku: sku, newSku: skuText, name: name, gender: gender, category: category, family: family)
+                            if let err = store.updateItem(sku: sku, newSku: skuText, name: name, gender: gender, category: category, family: family) {
+                                problem = err
+                            } else {
+                                dismiss()
+                            }
                         } else {
-                            err = store.addItem(sku: skuText, name: name, gender: gender, category: category, family: family, bin: bin)
+                            Task {
+                                if let err = await store.addItem(sku: skuText, name: name, gender: gender, category: category, family: family, bin: bin) {
+                                    problem = err
+                                } else {
+                                    dismiss()
+                                }
+                            }
                         }
-                        if let err { problem = err } else { dismiss() }
-                    }.disabled(skuText.trimmed.isEmpty)
+                    } label: {
+                        if sku == nil && store.isSaving { ProgressView() }
+                        else { Text(sku == nil ? "Add" : "Save") }
+                    }
+                    .disabled(skuText.trimmed.isEmpty || store.isSaving)
                 }
             }
             .onAppear {
@@ -324,6 +387,42 @@ struct EditItemSheet: View {
                     skuText = it.sku; name = it.name; gender = it.gender; category = it.category; family = it.family
                 }
             }
+            .onChange(of: skuText) { _, newValue in
+                applyGenderHint(for: newValue)
+            }
+            .onChange(of: name) { _, newValue in
+                applyFamilyHint(for: newValue)
+            }
+            .sheet(isPresented: $scanning) {
+                ScanSheet(onScan: { scannedSKU in
+                    skuText = scannedSKU
+                    applyGenderHint(for: scannedSKU)
+                }, onAutofill: { details in
+                    skuText = details.sku
+                    if !details.name.isEmpty { name = details.name }
+                    if !details.gender.isEmpty { gender = details.gender; lastAutoGender = details.gender }
+                    if !details.family.isEmpty { family = details.family; lastAutoFamily = details.family }
+                    applyGenderHint(for: details.sku)
+                })
+            }
         }
+    }
+
+    private func applyGenderHint(for rawSKU: String) {
+        let prefix = rawSKU.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        let suggestion: String?
+        if prefix.hasPrefix("K1") || prefix.hasPrefix("K3") { suggestion = "Men" }
+        else if prefix.hasPrefix("K2") || prefix.hasPrefix("K4") { suggestion = "Women" }
+        else { suggestion = nil }
+        guard let suggestion, gender.trimmed.isEmpty || gender == lastAutoGender else { return }
+        gender = suggestion
+        lastAutoGender = suggestion
+    }
+
+    private func applyFamilyHint(for rawName: String) {
+        guard family.trimmed.isEmpty || family == lastAutoFamily,
+              let first = rawName.split(whereSeparator: \.isWhitespace).first else { return }
+        family = String(first)
+        lastAutoFamily = family
     }
 }

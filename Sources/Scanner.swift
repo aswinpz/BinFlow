@@ -94,6 +94,47 @@ enum SKUMatch {
         return nil
     }
 
+    /// Reads the complete product label so Add SKU can prefill more than the SKU.
+    static func recognizeLabel(in image: UIImage) -> LabelAutofill? {
+        guard let cg = image.cgImage else { return nil }
+        let request = VNRecognizeTextRequest()
+        request.recognitionLevel = .accurate
+        request.usesLanguageCorrection = true
+        request.minimumTextHeight = 0.003
+        let handler = VNImageRequestHandler(cgImage: cg, orientation: orientation(image.imageOrientation), options: [:])
+        guard (try? handler.perform([request])) != nil else { return nil }
+        let lines = (request.results ?? [])
+            .sorted { $0.boundingBox.midY > $1.boundingBox.midY }
+            .map { observation in
+                (observation.topCandidates(3).map(\.string), observation.boundingBox.midY, observation.boundingBox.minX)
+            }
+        guard let skuLine = lines.first(where: { line in line.0.contains(where: { code(in: $0) != nil }) }),
+              let sku = skuLine.0.compactMap({ code(in: $0) }).first else { return nil }
+
+        // Camper prints the model name on the first line directly below the SKU.
+        // Vision's normalized Y axis grows upward, so the next lower line has a smaller Y.
+        let excluded = ["CAMPER", "WWW", "SCAN", "SIZE", "COLOR", "COLOUR", "MADE IN", "LEATHER", "RUBBER", "TEXTILE", "UPPER", "LINING", "SOLE", "WOMEN", "WOMENS", "MEN", "MENS"]
+        func productNameCandidate(_ raw: String) -> String? {
+            let cleaned = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+                .trimmingCharacters(in: CharacterSet(charactersIn: "|•·:;,.—–-"))
+            let upper = cleaned.uppercased()
+            guard cleaned.count >= 3, cleaned.count <= 36,
+                  !excluded.contains(where: { upper.contains($0) }),
+                  cleaned.rangeOfCharacter(from: .decimalDigits) == nil,
+                  cleaned.contains(where: \.isLetter) else { return nil }
+            return cleaned
+        }
+        let name = lines
+            .filter { $0.1 < skuLine.1 && skuLine.1 - $0.1 <= 0.12 && $0.2 < 0.68 }
+            .sorted { $0.1 > $1.1 }
+            .compactMap { line in line.0.compactMap(productNameCandidate).first }
+            .first ?? ""
+        let prefix = String(sku.prefix(2)).uppercased()
+        let gender = ["K1", "K3"].contains(prefix) ? "Men" : (["K2", "K4"].contains(prefix) ? "Women" : "")
+        let family = name.split(whereSeparator: \.isWhitespace).first.map(String.init) ?? ""
+        return LabelAutofill(sku: sku, name: name, gender: gender, family: family)
+    }
+
     private static func orientation(_ o: UIImage.Orientation) -> CGImagePropertyOrientation {
         switch o {
         case .up: return .up
@@ -109,42 +150,115 @@ enum SKUMatch {
     }
 }
 
+struct LabelAutofill {
+    let sku: String
+    let name: String
+    let gender: String
+    let family: String
+}
+
 final class ScannerHandle { weak var vc: DataScannerViewController? }
 
 struct ScanSheet: View {
     var onScan: (String) -> Void
+    var onAutofill: ((LabelAutofill) -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
     @Environment(Store.self) private var store
     @State private var zoom = 1.0
     @State private var handle = ScannerHandle()
     @State private var reading = false
+    @State private var matching = false
+    @State private var detectedSKU: String?
+    @State private var visualMatches: [VisualMatch] = []
     @State private var hint = "Point at the SKU, e.g. K300530-007"
+
+    init(onScan: @escaping (String) -> Void) {
+        self.onScan = onScan
+        self.onAutofill = nil
+    }
+
+    init(onScan: @escaping (String) -> Void, onAutofill: @escaping (LabelAutofill) -> Void) {
+        self.onScan = onScan
+        self.onAutofill = onAutofill
+    }
 
     var body: some View {
         NavigationStack {
             Group {
                 if DataScannerViewController.isSupported && DataScannerViewController.isAvailable {
-                    ScannerRepresentable(known: SKUMatch.map(store.items), zoom: zoom, handle: handle) {
-                        onScan($0); dismiss()
+                    ScannerRepresentable(known: SKUMatch.map(store.items), zoom: zoom, handle: handle) { found in
+                        if onAutofill != nil {
+                            detectedSKU = found
+                            hint = "SKU detected. Reading the full label to autofill details…"
+                            readLabel()
+                        } else {
+                            onScan(found)
+                            dismiss()
+                        }
                     }
                     .ignoresSafeArea()
                     .overlay(alignment: .bottom) {
-                        VStack(spacing: 14) {
-                            HStack(spacing: 8) {
-                                ForEach([1.0, 2.0, 3.0, 4.0], id: \.self) { z in
-                                    Button { zoom = z } label: {
-                                        Text("\(Int(z))x").font(.footnote.weight(.bold).monospacedDigit())
-                                            .frame(width: 44, height: 34)
-                                            .background(zoom == z ? Theme.accent : Color.black.opacity(0.55), in: Capsule())
-                                            .foregroundStyle(zoom == z ? Color.black : Color.white)
+                        VStack(spacing: 12) {
+                            if !visualMatches.isEmpty {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    Text("Approximate visual matches — choose the correct shoe")
+                                        .font(.caption.weight(.bold)).foregroundStyle(.primary)
+                                    ForEach(visualMatches) { match in
+                                        Button {
+                                            onScan(match.item.sku)
+                                            dismiss()
+                                        } label: {
+                                            HStack(spacing: 10) {
+                                                CamperProductImage(sku: match.item.sku, size: 58)
+                                                VStack(alignment: .leading, spacing: 3) {
+                                                    Text(match.item.name.isEmpty ? match.item.sku : match.item.name)
+                                                        .font(.subheadline.weight(.bold)).lineLimit(1)
+                                                    Text(match.item.sku).font(.caption.monospaced()).foregroundStyle(.secondary)
+                                                    Text(match.item.bins.isEmpty ? "No bin assigned" : "Bin: \(match.item.bins.joined(separator: ", "))")
+                                                        .font(.caption2).foregroundStyle(match.item.available ? Theme.accent : Theme.warn)
+                                                        .lineLimit(1)
+                                                }
+                                                Spacer(minLength: 0)
+                                                Image(systemName: "chevron.right").font(.caption.bold())
+                                            }
+                                            .padding(8)
+                                            .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14))
+                                        }
+                                        .buttonStyle(.plain)
+                                        .foregroundStyle(.primary)
+                                    }
+                                    Text("Only a sample of catalog products is checked. Compare the photo carefully; use OCR or search if it isn't listed.")
+                                        .font(.caption2).foregroundStyle(.secondary)
+                                }
+                                .padding(12)
+                                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                                .padding(.horizontal, 12)
+                            }
+
+                            VStack(spacing: 9) {
+                                HStack(spacing: 8) {
+                                    ForEach([1.0, 2.0, 3.0, 4.0], id: \.self) { z in
+                                        Button { zoom = z } label: {
+                                            Text("\(Int(z))x").font(.footnote.weight(.bold).monospacedDigit())
+                                                .frame(width: 44, height: 34)
+                                                .background(zoom == z ? Theme.accent : Color.black.opacity(0.55), in: Capsule())
+                                                .foregroundStyle(zoom == z ? Color.black : Color.white)
+                                        }
                                     }
                                 }
-                                Button { readPhoto() } label: {
-                                    Label(reading ? "Reading…" : "Read photo", systemImage: "camera.aperture")
-                                        .font(.footnote.weight(.bold))
-                                        .padding(.horizontal, 12).frame(height: 34)
-                                        .background(Theme.pink, in: Capsule()).foregroundStyle(.white)
-                                }.disabled(reading)
+                                HStack(spacing: 10) {
+                                    Button { onAutofill == nil ? readPhoto() : readLabel() } label: {
+                                        Label(reading ? "Reading…" : (onAutofill == nil ? "Read SKU" : "Autofill label"),
+                                              systemImage: onAutofill == nil ? "camera.aperture" : "text.viewfinder")
+                                            .font(.footnote.weight(.bold)).frame(maxWidth: .infinity).frame(height: 42)
+                                            .background(Theme.pink, in: Capsule()).foregroundStyle(.white)
+                                    }.disabled(reading || matching)
+                                    Button { identifyShoe() } label: {
+                                        Label(matching ? "Matching…" : "Identify shoe", systemImage: "photo.magnifyingglass")
+                                            .font(.footnote.weight(.bold)).frame(maxWidth: .infinity).frame(height: 42)
+                                            .background(Theme.accent, in: Capsule()).foregroundStyle(.black)
+                                    }.disabled(reading || matching)
+                                }
                             }
                             Label(hint, systemImage: "text.viewfinder")
                                 .font(.subheadline.weight(.semibold))
@@ -180,6 +294,55 @@ struct ScanSheet: View {
                 else { hint = "No SKU found. Move closer and try again" }
             } catch {
                 hint = "Couldn't take the photo. Try again"
+            }
+        }
+    }
+
+    /// Captures a label photo and extracts SKU, model name, inferred gender, and family.
+    private func readLabel() {
+        guard let vc = handle.vc, !reading else { return }
+        reading = true
+        hint = "Reading product label…"
+        Task {
+            defer { reading = false }
+            do {
+                let image = try await vc.capturePhoto()
+                let details = await Task.detached(priority: .userInitiated) {
+                    SKUMatch.recognizeLabel(in: image)
+                }.value
+                if let details {
+                    onAutofill?(details)
+                    dismiss()
+                } else {
+                    hint = detectedSKU.map { "SKU \($0) detected. Move closer and tap Autofill label again." }
+                        ?? "Couldn't read the label. Move closer and try again."
+                }
+            } catch {
+                hint = "Couldn't capture the label. Try again."
+            }
+        }
+    }
+
+    /// Captures the current camera view and compares it with official Camper catalog thumbnails.
+    private func identifyShoe() {
+        guard let vc = handle.vc, !matching else { return }
+        matching = true
+        visualMatches = []
+        hint = "Comparing with Camper catalog images…"
+        let catalog = store.items
+        Task {
+            defer { matching = false }
+            do {
+                let image = try await vc.capturePhoto()
+                let found = await Task.detached(priority: .userInitiated) {
+                    await CamperVisualMatcher.matches(photo: image, items: catalog, limit: 48)
+                }.value
+                visualMatches = found
+                hint = found.isEmpty
+                    ? "No catalog image match. Use OCR or search instead."
+                    : "Review the closest matches below and choose the right item."
+            } catch {
+                hint = "Couldn't capture the shoe photo. Try again or use OCR."
             }
         }
     }

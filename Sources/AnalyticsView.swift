@@ -18,7 +18,7 @@ struct AnalyticsView: View {
                 HStack {
                     Text("Warehouse Performance")
                         .font(.headline.weight(.heavy))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(Theme.primaryText)
                     Spacer()
                     Picker("Range", selection: $timeRange) {
                         Text("Week").tag("Week")
@@ -40,7 +40,7 @@ struct AnalyticsView: View {
                             HStack(alignment: .firstTextBaseline, spacing: 6) {
                                 Text("\(max(store.log.count, 28))")
                                     .font(.system(size: 26, weight: .heavy, design: .rounded))
-                                    .foregroundStyle(.white)
+                                    .foregroundStyle(Theme.primaryText)
                                 Text("Actions")
                                     .font(.caption.weight(.bold))
                                     .foregroundStyle(Theme.accent)
@@ -80,7 +80,7 @@ struct AnalyticsView: View {
                                 .foregroundStyle(.secondary)
                             Text("Stock Turn Rate")
                                 .font(.headline.weight(.heavy))
-                                .foregroundStyle(.white)
+                                .foregroundStyle(Theme.primaryText)
                         }
                         Spacer()
                         Text("STABLE")
@@ -165,7 +165,7 @@ struct AnalyticsView: View {
                             VStack(spacing: 1) {
                                 Text("\(Int(allocRatio * 100))%")
                                     .font(.system(size: 18, weight: .heavy, design: .rounded))
-                                    .foregroundStyle(.white)
+                                    .foregroundStyle(Theme.primaryText)
                                 Text("IN BINS")
                                     .font(.system(size: 7, weight: .bold))
                                     .foregroundStyle(.secondary)
@@ -216,7 +216,7 @@ struct AnalyticsView: View {
         HStack(spacing: 8) {
             Circle().fill(color).frame(width: 8, height: 8)
             VStack(alignment: .leading, spacing: 1) {
-                Text(title).font(.caption.weight(.semibold)).foregroundStyle(.white)
+                Text(title).font(.caption.weight(.semibold)).foregroundStyle(Theme.primaryText)
                 Text(count).font(.caption2).foregroundStyle(.secondary)
             }
         }

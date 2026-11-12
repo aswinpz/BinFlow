@@ -5,13 +5,15 @@ import UniformTypeIdentifiers
 struct BinFlowApp: App {
     @State private var store = Store()
     @Environment(\.scenePhase) private var phase
+    @AppStorage("colorMode") private var colorMode = "dark"
+    @AppStorage("colorTheme") private var colorTheme = "Mint"
 
     var body: some Scene {
         WindowGroup {
             RootView()
                 .environment(store)
                 .tint(Theme.accent)
-                .preferredColorScheme(.dark)
+                .preferredColorScheme(colorMode == "light" ? .light : .dark)
                 .onChange(of: phase) { _, new in
                     let auto = UserDefaults.standard.object(forKey: "autoReload") as? Bool ?? true
                     if new == .active && auto { store.refreshFromDisk() }
@@ -21,18 +23,43 @@ struct BinFlowApp: App {
 }
 
 enum Theme {
-    static let accent = Color(red: 0x00/255, green: 0xF5/255, blue: 0xA0/255)   // electric neon mint (#00F5A0)
-    static let cyan = Color(red: 0x00/255, green: 0xD2/255, blue: 0xC4/255)     // neon cyan (#00D2C4)
-    static let pink = Color(red: 1.0, green: 0.18, blue: 0.58)
-    static let blue = Color(red: 0.20, green: 0.50, blue: 1.0)
-    static let green = Color(red: 0x00/255, green: 0xF5/255, blue: 0xA0/255)
-    static let warn = Color(red: 0xF9/255, green: 0x73/255, blue: 0x16/255)     // neon coral (#F97316)
-    static let purple = Color(red: 0x7C/255, green: 0x3A/255, blue: 0xED/255)   // neon purple (#7C3AED)
-    static let bg = Color(red: 0x0B/255, green: 0x11/255, blue: 0x18/255)       // deep navy canvas (#0B1118)
-    static let card = Color(red: 0x12/255, green: 0x1B/255, blue: 0x26/255)     // dark card (#121B26)
-    static let cardBorder = Color(red: 0x1D/255, green: 0x2D/255, blue: 0x40/255) // border stroke (#1D2D40)
-    static let cardSubtle = Color(red: 0x1A/255, green: 0x28/255, blue: 0x38/255)
-    static let mintGradient = LinearGradient(colors: [accent, cyan], startPoint: .topLeading, endPoint: .bottomTrailing)
+    private static var selected: String { UserDefaults.standard.string(forKey: "colorTheme") ?? "Mint" }
+    private static var lightMode: Bool { UserDefaults.standard.string(forKey: "colorMode") == "light" }
+    static var accent: Color {
+        switch selected {
+        case "Ocean": return Color(red: 0.12, green: 0.48, blue: 0.98)
+        case "Sunset": return Color(red: 0.98, green: 0.30, blue: 0.20)
+        case "Berry": return Color(red: 0.91, green: 0.20, blue: 0.56)
+        case "Orchid": return Color(red: 0.60, green: 0.31, blue: 0.94)
+        case "Forest": return Color(red: 0.08, green: 0.62, blue: 0.36)
+        case "Amber": return Color(red: 0.92, green: 0.55, blue: 0.05)
+        case "Rose": return Color(red: 0.88, green: 0.30, blue: 0.42)
+        default: return Color(red: 0.00, green: 0.82, blue: 0.56)
+        }
+    }
+    static var cyan: Color {
+        switch selected {
+        case "Ocean": return Color(red: 0.10, green: 0.78, blue: 0.91)
+        case "Sunset": return Color(red: 1.00, green: 0.68, blue: 0.28)
+        case "Berry": return Color(red: 1.00, green: 0.43, blue: 0.64)
+        case "Orchid": return Color(red: 0.32, green: 0.64, blue: 1.00)
+        case "Forest": return Color(red: 0.52, green: 0.81, blue: 0.31)
+        case "Amber": return Color(red: 1.00, green: 0.78, blue: 0.20)
+        case "Rose": return Color(red: 1.00, green: 0.60, blue: 0.54)
+        default: return Color(red: 0.00, green: 0.70, blue: 0.73)
+        }
+    }
+    static var pink: Color { Color(red: 0.95, green: 0.24, blue: 0.58) }
+    static var blue: Color { Color(red: 0.20, green: 0.50, blue: 1.0) }
+    static var green: Color { accent }
+    static var warn: Color { Color(red: 0.95, green: 0.39, blue: 0.12) }
+    static var purple: Color { Color(red: 0.49, green: 0.23, blue: 0.85) }
+    static var bg: Color { lightMode ? Color(red: 0.96, green: 0.97, blue: 0.99) : Color(red: 0.04, green: 0.07, blue: 0.10) }
+    static var card: Color { lightMode ? .white : Color(red: 0.08, green: 0.11, blue: 0.15) }
+    static var cardBorder: Color { lightMode ? Color(red: 0.87, green: 0.89, blue: 0.93) : Color(red: 0.12, green: 0.18, blue: 0.24) }
+    static var cardSubtle: Color { lightMode ? Color(red: 0.92, green: 0.94, blue: 0.97) : Color(red: 0.10, green: 0.15, blue: 0.20) }
+    static var primaryText: Color { .primary }
+    static var mintGradient: LinearGradient { LinearGradient(colors: [accent, cyan], startPoint: .topLeading, endPoint: .bottomTrailing) }
 }
 
 struct RadialProgressGauge: View {
@@ -52,7 +79,7 @@ struct RadialProgressGauge: View {
             VStack(spacing: 2) {
                 Text("\(Int(percent * 100))%")
                     .font(.system(size: 20, weight: .heavy, design: .rounded))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(Theme.primaryText)
                 Text(title)
                     .font(.system(size: 8, weight: .bold))
                     .foregroundStyle(.secondary)
@@ -122,8 +149,12 @@ struct Tag: View {
 
 struct RootView: View {
     @Environment(Store.self) private var store
+    @AppStorage("colorTheme") private var colorTheme = "Mint"
+    @AppStorage("colorMode") private var colorMode = "dark"
 
     var body: some View {
+        let _ = colorTheme
+        let _ = colorMode
         Group {
             if store.hasFile { HomeView() } else { SetupView() }
         }
@@ -137,7 +168,7 @@ struct RootView: View {
             case .failure(let e): store.error = e.localizedDescription
             }
         }
-        .alert("BinFlow", isPresented: Binding(get: { store.error != nil }, set: { if !$0 { store.error = nil } })) {
+        .alert("CAMPX DXB", isPresented: Binding(get: { store.error != nil }, set: { if !$0 { store.error = nil } })) {
             Button("OK", role: .cancel) {}
         } message: {
             Text(store.error ?? "")
@@ -154,7 +185,7 @@ struct SetupView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
                 .shadow(color: .black.opacity(0.12), radius: 12, y: 6)
             Text("Connect your spreadsheet").font(.title2.bold())
-            Text("Choose your Excel file (for example camper_master.xlsx). BinFlow reads Sheet1 and writes every change straight back into the same file.\n\nA SKU with an empty Bin cell shows as Unavailable.")
+            Text("Choose your Excel file (for example camper_master.xlsx). CAMPX DXB reads Sheet1 and writes every change straight back into the same file.\n\nA SKU with an empty Bin cell shows as Unavailable.")
                 .multilineTextAlignment(.center).foregroundStyle(.secondary)
             Button { store.showPicker = true } label: {
                 Label("Choose Excel file", systemImage: "folder").frame(maxWidth: .infinity)

@@ -1,10 +1,12 @@
 import SwiftUI
+import UIKit
 
 enum Route: Hashable { case find(String), receive, bins, activity, settings, edit, analytics }
 
 struct HomeView: View {
     @Environment(Store.self) private var store
     @AppStorage("userName") private var userName = "Aswin"
+    @AppStorage("profilePhotoData") private var profilePhotoData = Data()
     @State private var path = NavigationPath()
     @State private var scanning = false
     @State private var adding = false
@@ -88,9 +90,31 @@ struct HomeView: View {
             .binflowDestinations()
             .sheet(isPresented: $scanning) { ScanSheet { handle($0) } }
             .sheet(isPresented: $adding) { EditItemSheet(sku: nil) }
-            .confirmationDialog("Close BinFlow?", isPresented: $confirmExit, titleVisibility: .visible) {
+            .confirmationDialog("Close CAMPX DXB?", isPresented: $confirmExit, titleVisibility: .visible) {
                 Button("Close app", role: .destructive) { exit(0) }
             } message: { Text("Your spreadsheet is already saved after every change.") }
+            .onOpenURL { openWidgetShortcut($0) }
+        }
+    }
+
+    private func openWidgetShortcut(_ url: URL) {
+        guard url.scheme?.lowercased() == "campxdxb",
+              let action = url.host?.lowercased(),
+              ["scan", "find", "add"].contains(action) else { return }
+        path = NavigationPath()
+        switch action {
+        case "scan":
+            adding = false
+            scanning = true
+        case "find":
+            scanning = false
+            adding = false
+            path.append(Route.find(""))
+        case "add":
+            scanning = false
+            adding = true
+        default:
+            break
         }
     }
 
@@ -108,7 +132,7 @@ struct HomeView: View {
                     .tracking(2)
                 Text("Welcome back,\n\(userName)")
                     .font(.system(size: 24, weight: .heavy))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(Theme.primaryText)
             }
             Spacer()
 
@@ -117,7 +141,7 @@ struct HomeView: View {
                 Button { scanning = true } label: {
                     Image(systemName: "barcode.viewfinder")
                         .font(.system(size: 16, weight: .bold))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(Theme.primaryText)
                         .frame(width: 42, height: 42)
                         .background(Theme.card)
                         .clipShape(Circle())
@@ -127,15 +151,20 @@ struct HomeView: View {
                 // Operator Avatar Badge with Glowing Online Dot
                 NavigationLink(value: Route.settings) {
                     ZStack(alignment: .bottomTrailing) {
-                        Circle()
-                            .fill(Theme.card)
-                            .frame(width: 42, height: 42)
-                            .overlay(
-                                Text(String(userName.prefix(2)).uppercased())
-                                    .font(.system(size: 13, weight: .black))
-                                    .foregroundStyle(Theme.accent)
-                            )
-                            .overlay(Circle().stroke(Theme.accent.opacity(0.8), lineWidth: 1.5))
+                        Group {
+                            if let image = UIImage(data: profilePhotoData), !profilePhotoData.isEmpty {
+                                Image(uiImage: image).resizable().scaledToFill()
+                            } else {
+                                Circle().fill(Theme.card).overlay(
+                                    Text(String(userName.prefix(2)).uppercased())
+                                        .font(.system(size: 13, weight: .black))
+                                        .foregroundStyle(Theme.accent)
+                                )
+                            }
+                        }
+                        .frame(width: 42, height: 42)
+                        .clipShape(Circle())
+                        .overlay(Circle().stroke(Theme.accent.opacity(0.8), lineWidth: 1.5))
 
                         Circle()
                             .fill(Theme.green)
@@ -166,7 +195,7 @@ struct HomeView: View {
                         Spacer()
                         Text("\(allocatedItems) / \(totalItems)")
                             .font(.caption.bold())
-                            .foregroundStyle(.white)
+                            .foregroundStyle(Theme.primaryText)
                     }
                     ProgressView(value: Double(allocatedItems), total: Double(max(totalItems, 1)))
                         .tint(Theme.warn)
@@ -181,7 +210,7 @@ struct HomeView: View {
                         Spacer()
                         Text("\(store.allBins.count) Bins")
                             .font(.caption.bold())
-                            .foregroundStyle(.white)
+                            .foregroundStyle(Theme.primaryText)
                     }
                     ProgressView(value: Double(store.allBins.count), total: Double(max(store.allBins.count + 5, 20)))
                         .tint(Theme.accent)
@@ -219,7 +248,7 @@ struct HomeView: View {
             }
             Text(value)
                 .font(.system(size: 20, weight: .heavy, design: .rounded))
-                .foregroundStyle(.white)
+                .foregroundStyle(Theme.primaryText)
             Text(badge)
                 .font(.system(size: 10, weight: .bold))
                 .foregroundStyle(badgeColor)
@@ -280,7 +309,7 @@ struct MenuCard: View {
                 .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(color.opacity(0.25), lineWidth: 1))
 
             VStack(alignment: .leading, spacing: 3) {
-                Text(title).font(.headline.weight(.bold)).foregroundStyle(.white)
+                Text(title).font(.headline.weight(.bold)).foregroundStyle(Theme.primaryText)
                 Text(subtitle).font(.caption).foregroundStyle(.secondary)
             }
             Spacer()

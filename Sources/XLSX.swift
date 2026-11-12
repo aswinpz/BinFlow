@@ -15,7 +15,7 @@ enum XLSXError: LocalizedError {
     }
 }
 
-struct ZipPart { var name: String; var data: Data }
+struct ZipPart: Sendable { var name: String; var data: Data }
 
 enum Zip {
     private static func u16(_ d: Data, _ o: Int) -> Int { Int(d[d.startIndex + o]) | Int(d[d.startIndex + o + 1]) << 8 }
@@ -171,13 +171,13 @@ private final class SheetParser: NSObject, XMLParserDelegate {
 // MARK: - Workbook
 
 /// One data row of Sheet1 (columns A-F).
-struct SheetRow: Identifiable, Equatable {
+struct SheetRow: Identifiable, Equatable, Sendable {
     var id = UUID()
     var gender = "", category = "", family = "", sku = "", name = "", bin = ""
 }
 
 /// Holds the original workbook parts so everything we don't touch (styles, Sheet2, theme...) is written back unchanged.
-struct Workbook {
+struct Workbook: Sendable {
     private(set) var parts: [ZipPart]
     private let sheetName: String
     var rows: [SheetRow]
