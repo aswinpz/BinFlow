@@ -308,21 +308,20 @@ struct EditItemSheet: View {
     @State private var problem: String?
     @State private var scanning = false
     @State private var lastAutoGender = ""
+    @State private var lastAutoFamily = ""
 
     var body: some View {
         NavigationStack {
             Form {
-                if sku == nil {
-                    Section {
-                        Button { scanning = true } label: {
-                            Label("Scan label with OCR", systemImage: "text.viewfinder")
-                                .font(.headline.weight(.semibold))
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                        Text("Scanning fills the SKU. Gender is suggested from the SKU prefix; you can edit any field before saving.")
-                            .font(.caption).foregroundStyle(.secondary)
-                    } header: { Text("Quick entry") }
-                }
+                Section {
+                    Button { scanning = true } label: {
+                        Label("Scan label to autofill", systemImage: "text.viewfinder")
+                            .font(.headline.weight(.semibold))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    Text("Reads the SKU and product name from the label, then suggests gender from the SKU prefix and family from the first word of the name. Review and edit all fields before saving.")
+                        .font(.caption).foregroundStyle(.secondary)
+                } header: { Text("Quick entry") }
                 Section {
                     TextField("SKU", text: $skuText).textInputAutocapitalization(.characters).autocorrectionDisabled()
                     TextField("Name", text: $name)
@@ -358,13 +357,22 @@ struct EditItemSheet: View {
                 }
             }
             .onChange(of: skuText) { _, newValue in
-                if sku == nil { applyGenderHint(for: newValue) }
+                applyGenderHint(for: newValue)
+            }
+            .onChange(of: name) { _, newValue in
+                applyFamilyHint(for: newValue)
             }
             .sheet(isPresented: $scanning) {
-                ScanSheet { scannedSKU in
+                ScanSheet(onScan: { scannedSKU in
                     skuText = scannedSKU
                     applyGenderHint(for: scannedSKU)
-                }
+                }, onAutofill: { details in
+                    skuText = details.sku
+                    if !details.name.isEmpty { name = details.name }
+                    if !details.gender.isEmpty { gender = details.gender; lastAutoGender = details.gender }
+                    if !details.family.isEmpty { family = details.family; lastAutoFamily = details.family }
+                    applyGenderHint(for: details.sku)
+                })
             }
         }
     }
@@ -378,5 +386,12 @@ struct EditItemSheet: View {
         guard let suggestion, gender.trimmed.isEmpty || gender == lastAutoGender else { return }
         gender = suggestion
         lastAutoGender = suggestion
+    }
+
+    private func applyFamilyHint(for rawName: String) {
+        guard family.trimmed.isEmpty || family == lastAutoFamily,
+              let first = rawName.split(whereSeparator: \.isWhitespace).first else { return }
+        family = String(first)
+        lastAutoFamily = family
     }
 }

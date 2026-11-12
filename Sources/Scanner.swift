@@ -94,6 +94,53 @@ enum SKUMatch {
         return nil
     }
 
+    /// Reads the complete product label so Add SKU can prefill more than the SKU.
+    static func recognizeLabel(in image: UIImage) -> LabelAutofill? {
+        guard let cg = image.cgImage else { return nil }
+        let request = VNRecognizeTextRequest()
+        request.recognitionLevel = .accurate
+        request.usesLanguageCorrection = true
+        request.minimumTextHeight = 0.003
+        let handler = VNImageRequestHandler(cgImage: cg, orientation: orientation(image.imageOrientation), options: [:])
+        guard (try? handler.perform([request])) != nil else { return nil }
+        let lines = (request.results ?? [])
+            .sorted { $0.boundingBox.midY > $1.boundingBox.midY }
+            .compactMap { observation -> (String, CGFloat)? in
+                guard let text = observation.topCandidates(3).first?.string else { return nil }
+                return (text, observation.boundingBox.midY)
+            }
+        guard let skuLine = lines.first(where: { code(in: $0.0) != nil }),
+              let sku = code(in: skuLine.0) else { return nil }
+
+        let excluded = ["CAMPER", "WWW", "SCAN", "SIZE", "COLOR", "COLOUR", "MADE IN", "LEATHER", "RUBBER", "TEXTILE", "UPPER", "LINING", "SOLE", "WOMEN", "WOMENS", "MEN", "MENS"]
+        let nameCandidates = lines.compactMap { text, y -> (String, CGFloat)? in
+            guard code(in: text) == nil else { return nil }
+            let cleaned = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                .trimmingCharacters(in: CharacterSet(charactersIn: "|•·:;,.—–-"))
+            let upper = cleaned.uppercased()
+            guard cleaned.count >= 4, cleaned.count <= 36,
+                  !excluded.contains(where: { upper.contains($0) }),
+                  cleaned.rangeOfCharacter(from: .decimalDigits) == nil else { return nil }
+            let words = cleaned.split(whereSeparator: { !$0.isLetter && !$0.isWhitespace })
+            guard words.count >= 2, cleaned.contains(where: \.isLetter) else { return nil }
+            return (cleaned, y)
+        }
+        let name = nameCandidates.max { lhs, rhs in
+            labelNameScore(lhs.0, y: lhs.1, skuY: skuLine.1) < labelNameScore(rhs.0, y: rhs.1, skuY: skuLine.1)
+        }?.0 ?? ""
+        let prefix = String(sku.prefix(2)).uppercased()
+        let gender = ["K1", "K3"].contains(prefix) ? "Men" : (["K2", "K4"].contains(prefix) ? "Women" : "")
+        let family = name.split(whereSeparator: \.isWhitespace).first.map(String.init) ?? ""
+        return LabelAutofill(sku: sku, name: name, gender: gender, family: family)
+    }
+
+    private static func labelNameScore(_ text: String, y: CGFloat, skuY: CGFloat) -> CGFloat {
+        let wordCount = text.split(whereSeparator: \.isWhitespace).count
+        let proximity = max(0, 1 - abs(y - skuY) * 2)
+        let lowerLabelBias: CGFloat = y < 0.55 ? 0.5 : 0
+        return (wordCount == 2 ? 2 : 1) + proximity + lowerLabelBias - CGFloat(text.count) / 100
+    }
+
     private static func orientation(_ o: UIImage.Orientation) -> CGImagePropertyOrientation {
         switch o {
         case .up: return .up
@@ -109,25 +156,51 @@ enum SKUMatch {
     }
 }
 
+struct LabelAutofill {
+    let sku: String
+    let name: String
+    let gender: String
+    let family: String
+}
+
 final class ScannerHandle { weak var vc: DataScannerViewController? }
 
 struct ScanSheet: View {
     var onScan: (String) -> Void
+    var onAutofill: ((LabelAutofill) -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
     @Environment(Store.self) private var store
     @State private var zoom = 1.0
     @State private var handle = ScannerHandle()
     @State private var reading = false
     @State private var matching = false
+    @State private var detectedSKU: String?
     @State private var visualMatches: [VisualMatch] = []
     @State private var hint = "Point at the SKU, e.g. K300530-007"
+
+    init(onScan: @escaping (String) -> Void) {
+        self.onScan = onScan
+        self.onAutofill = nil
+    }
+
+    init(onScan: @escaping (String) -> Void, onAutofill: @escaping (LabelAutofill) -> Void) {
+        self.onScan = onScan
+        self.onAutofill = onAutofill
+    }
 
     var body: some View {
         NavigationStack {
             Group {
                 if DataScannerViewController.isSupported && DataScannerViewController.isAvailable {
-                    ScannerRepresentable(known: SKUMatch.map(store.items), zoom: zoom, handle: handle) {
-                        onScan($0); dismiss()
+                    ScannerRepresentable(known: SKUMatch.map(store.items), zoom: zoom, handle: handle) { found in
+                        if onAutofill != nil {
+                            detectedSKU = found
+                            hint = "SKU detected. Reading the full label to autofill details…"
+                            readLabel()
+                        } else {
+                            onScan(found)
+                            dismiss()
+                        }
                     }
                     .ignoresSafeArea()
                     .overlay(alignment: .bottom) {
@@ -180,8 +253,9 @@ struct ScanSheet: View {
                                     }
                                 }
                                 HStack(spacing: 10) {
-                                    Button { readPhoto() } label: {
-                                        Label(reading ? "Reading…" : "Read SKU", systemImage: "camera.aperture")
+                                    Button { onAutofill == nil ? readPhoto() : readLabel() } label: {
+                                        Label(reading ? "Reading…" : (onAutofill == nil ? "Read SKU" : "Autofill label"),
+                                              systemImage: onAutofill == nil ? "camera.aperture" : "text.viewfinder")
                                             .font(.footnote.weight(.bold)).frame(maxWidth: .infinity).frame(height: 42)
                                             .background(Theme.pink, in: Capsule()).foregroundStyle(.white)
                                     }.disabled(reading || matching)
@@ -226,6 +300,31 @@ struct ScanSheet: View {
                 else { hint = "No SKU found. Move closer and try again" }
             } catch {
                 hint = "Couldn't take the photo. Try again"
+            }
+        }
+    }
+
+    /// Captures a label photo and extracts SKU, model name, inferred gender, and family.
+    private func readLabel() {
+        guard let vc = handle.vc, !reading else { return }
+        reading = true
+        hint = "Reading product label…"
+        Task {
+            defer { reading = false }
+            do {
+                let image = try await vc.capturePhoto()
+                let details = await Task.detached(priority: .userInitiated) {
+                    SKUMatch.recognizeLabel(in: image)
+                }.value
+                if let details {
+                    onAutofill?(details)
+                    dismiss()
+                } else {
+                    hint = detectedSKU.map { "SKU \($0) detected. Move closer and tap Autofill label again." }
+                        ?? "Couldn't read the label. Move closer and try again."
+                }
+            } catch {
+                hint = "Couldn't capture the label. Try again."
             }
         }
     }
