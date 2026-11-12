@@ -93,6 +93,28 @@ struct HomeView: View {
             .confirmationDialog("Close CAMPX DXB?", isPresented: $confirmExit, titleVisibility: .visible) {
                 Button("Close app", role: .destructive) { exit(0) }
             } message: { Text("Your spreadsheet is already saved after every change.") }
+            .onOpenURL { openWidgetShortcut($0) }
+        }
+    }
+
+    private func openWidgetShortcut(_ url: URL) {
+        guard url.scheme?.lowercased() == "campxdxb",
+              let action = url.host?.lowercased(),
+              ["scan", "find", "add"].contains(action) else { return }
+        path = NavigationPath()
+        switch action {
+        case "scan":
+            adding = false
+            scanning = true
+        case "find":
+            scanning = false
+            adding = false
+            path.append(Route.find(""))
+        case "add":
+            scanning = false
+            adding = true
+        default:
+            break
         }
     }
 
