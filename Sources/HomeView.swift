@@ -1,6 +1,6 @@
 import SwiftUI
 
-enum Route: Hashable { case find(String), receive, bins, activity, settings, edit }
+enum Route: Hashable { case find(String), receive, bins, activity, settings, edit, analytics }
 
 struct HomeView: View {
     @Environment(Store.self) private var store
@@ -11,37 +11,66 @@ struct HomeView: View {
     @State private var confirmExit = false
     @State private var pulse = false
 
+    private var totalItems: Int { store.items.count }
+    private var allocatedItems: Int { store.items.filter { $0.available }.count }
+    private var waitingItems: Int { totalItems - allocatedItems }
+    private var allocPercent: Double {
+        totalItems > 0 ? Double(allocatedItems) / Double(totalItems) : 0
+    }
+
     var body: some View {
         NavigationStack(path: $path) {
             ZStack {
-                background
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 0) {
-                        header
-                        hero
+                Theme.bg.ignoresSafeArea()
+
+                ScrollView(showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 18) {
+                        
+                        // Header (Matches "GYMFIT" / Welcome back, Jason)
+                        headerView
+
+                        // Hero Radial Progress Card (Matches "Today's Progress 75%")
+                        heroProgressCard
+
+                        // 2x2 Metric Matrix (Matches 72 BPM / 5 days / 7h 32m / 185 lbs)
+                        metricMatrixView
+
+                        // Quick Search Bar
+                        searchBarPreview
+
+                        // Menu Section
                         VStack(spacing: 12) {
                             NavigationLink(value: Route.find("")) {
                                 MenuCard(icon: "magnifyingglass", color: Theme.accent, title: "Search SKU", subtitle: "Find products and bin locations")
                             }
                             Button { adding = true } label: {
-                                MenuCard(icon: "cart.badge.plus", color: Theme.green, title: "Add SKU", subtitle: "Register a new product")
+                                MenuCard(icon: "cart.badge.plus", color: Theme.green, title: "Add SKU", subtitle: "Register a new product to sheet")
+                            }
+                            NavigationLink(value: Route.receive) {
+                                MenuCard(icon: "shippingbox.and.arrow.backward", color: Theme.warn, title: "Receive Stock", subtitle: "Assign bins to waiting inventory")
+                            }
+                            NavigationLink(value: Route.bins) {
+                                MenuCard(icon: "square.grid.3x3.fill", color: Theme.blue, title: "Bin Explorer", subtitle: "Browse bins by warehouse zone")
+                            }
+                            NavigationLink(value: Route.analytics) {
+                                MenuCard(icon: "chart.bar.xaxis", color: Theme.purple, title: "Warehouse Analytics", subtitle: "Velocity, trends & distribution")
                             }
                             NavigationLink(value: Route.edit) {
                                 MenuCard(icon: "square.and.pencil", color: Theme.blue, title: "Edit SKU", subtitle: "Update product information")
                             }
-                            NavigationLink(value: Route.settings) {
-                                MenuCard(icon: "gearshape", color: Theme.blue, title: "Settings", subtitle: "Manage your application")
+                            NavigationLink(value: Route.activity) {
+                                MenuCard(icon: "clock.arrow.circlepath", color: Theme.accent, title: "Activity Log", subtitle: "Track changes and audit trail")
                             }
-                            Button { confirmExit = true } label: {
-                                MenuCard(icon: "rectangle.portrait.and.arrow.right", color: Theme.blue, title: "Exit", subtitle: "Close the application")
+                            NavigationLink(value: Route.settings) {
+                                MenuCard(icon: "gearshape.fill", color: .gray, title: "Settings", subtitle: "File connection & preferences")
                             }
                         }
                         .buttonStyle(.plain)
                         .padding(.horizontal, 20)
 
-                        quickLinks
                         footer
                     }
+                    .padding(.bottom, 24)
                 }
             }
             .toolbar(.hidden, for: .navigationBar)
@@ -53,6 +82,7 @@ struct HomeView: View {
                 case .activity: ActivityView()
                 case .settings: SettingsView()
                 case .edit: EditSKUView()
+                case .analytics: AnalyticsView()
                 }
             }
             .binflowDestinations()
@@ -68,66 +98,171 @@ struct HomeView: View {
         if store.item(code) != nil { path.append(code) } else { path.append(Route.find(code)) }
     }
 
-    private var background: some View {
-        ZStack {
-            Theme.bg
-            RadialGradient(colors: [Theme.pink.opacity(0.18), .clear], center: .init(x: 0.5, y: 0.28), startRadius: 10, endRadius: 280)
-            RadialGradient(colors: [Theme.accent.opacity(0.10), .clear], center: .init(x: 0.1, y: 0.0), startRadius: 10, endRadius: 320)
-        }.ignoresSafeArea()
-    }
-
-    private var header: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Hi \(userName)").font(.system(size: 42, weight: .heavy)).foregroundStyle(.white)
-            Text("WELCOME BACK").font(.subheadline.weight(.medium)).tracking(7).foregroundStyle(.secondary)
-        }
-        .padding(.horizontal, 24).padding(.top, 36)
-    }
-
-    private var hero: some View {
-        Button { scanning = true } label: {
-            VStack(spacing: 10) {
-                Image(systemName: "camera.viewfinder")
-                    .font(.system(size: 104, weight: .ultraLight))
-                    .foregroundStyle(Theme.pink)
-                    .shadow(color: Theme.pink.opacity(0.9), radius: 6)
-                    .shadow(color: Theme.pink.opacity(0.6), radius: 18)
-                    .scaleEffect(pulse ? 1.04 : 0.96)
-                Text("TAP TO SCAN SKU").font(.caption.weight(.semibold)).tracking(5).foregroundStyle(Theme.pink.opacity(0.85))
+    // Header View
+    private var headerView: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 3) {
+                Text("BINFLOW PRO")
+                    .font(.system(size: 11, weight: .black))
+                    .foregroundStyle(Theme.accent)
+                    .tracking(2)
+                Text("Welcome back,\n\(userName)")
+                    .font(.system(size: 24, weight: .heavy))
+                    .foregroundStyle(.white)
             }
-            .frame(maxWidth: .infinity).frame(height: 230)
+            Spacer()
+
+            HStack(spacing: 12) {
+                // Quick Camera Barcode Scanner Button
+                Button { scanning = true } label: {
+                    Image(systemName: "barcode.viewfinder")
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 42, height: 42)
+                        .background(Theme.card)
+                        .clipShape(Circle())
+                        .overlay(Circle().stroke(Theme.cardBorder, lineWidth: 1))
+                }
+
+                // Operator Avatar Badge with Glowing Online Dot
+                NavigationLink(value: Route.settings) {
+                    ZStack(alignment: .bottomTrailing) {
+                        Circle()
+                            .fill(Theme.card)
+                            .frame(width: 42, height: 42)
+                            .overlay(
+                                Text(String(userName.prefix(2)).uppercased())
+                                    .font(.system(size: 13, weight: .black))
+                                    .foregroundStyle(Theme.accent)
+                            )
+                            .overlay(Circle().stroke(Theme.accent.opacity(0.8), lineWidth: 1.5))
+
+                        Circle()
+                            .fill(Theme.green)
+                            .frame(width: 10, height: 10)
+                            .overlay(Circle().stroke(Theme.bg, lineWidth: 2))
+                    }
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 24)
+        .padding(.top, 24)
+    }
+
+    // Hero Radial Progress Card (75% Circular Ring from Reference)
+    private var heroProgressCard: some View {
+        HStack(spacing: 18) {
+            RadialProgressGauge(percent: allocPercent, title: "ALLOCATED", lineWidth: 9)
+                .frame(width: 90, height: 90)
+
+            VStack(alignment: .leading, spacing: 10) {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Circle().fill(Theme.warn).frame(width: 6, height: 6)
+                        Text("Allocated SKUs:")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Text("\(allocatedItems) / \(totalItems)")
+                            .font(.caption.bold())
+                            .foregroundStyle(.white)
+                    }
+                    ProgressView(value: Double(allocatedItems), total: Double(max(totalItems, 1)))
+                        .tint(Theme.warn)
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Circle().fill(Theme.accent).frame(width: 6, height: 6)
+                        Text("Active Bins:")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Text("\(store.allBins.count) Bins")
+                            .font(.caption.bold())
+                            .foregroundStyle(.white)
+                    }
+                    ProgressView(value: Double(store.allBins.count), total: Double(max(store.allBins.count + 5, 20)))
+                        .tint(Theme.accent)
+                }
+            }
+        }
+        .padding(18)
+        .background(Theme.card)
+        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).stroke(Theme.cardBorder, lineWidth: 1))
+        .padding(.horizontal, 20)
+    }
+
+    // 2x2 Metric Matrix (Matches 4 Stat Cards in Reference)
+    private var metricMatrixView: some View {
+        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
+            metricCard(title: "TOTAL SKUS", value: "\(totalItems)", badge: "▲ Catalog", badgeColor: Theme.accent, icon: "shippingbox.fill", iconColor: Theme.accent)
+            metricCard(title: "BINS ACTIVE", value: "\(store.allBins.count)", badge: "✓ Zones", badgeColor: Theme.accent, icon: "square.grid.3x3.fill", iconColor: Theme.blue)
+            metricCard(title: "ALLOCATION", value: "\(Int(allocPercent * 100))%", badge: "✓ In Stock", badgeColor: Theme.green, icon: "checkmark.shield.fill", iconColor: Theme.green)
+            metricCard(title: "WAITING STOCK", value: "\(waitingItems)", badge: waitingItems > 0 ? "⚠️ Need Bin" : "✓ None", badgeColor: waitingItems > 0 ? Theme.warn : Theme.accent, icon: "exclamationmark.triangle.fill", iconColor: Theme.warn)
+        }
+        .padding(.horizontal, 20)
+    }
+
+    private func metricCard(title: String, value: String, badge: String, badgeColor: Color, icon: String, iconColor: Color) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text(title)
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Image(systemName: icon)
+                    .font(.system(size: 13))
+                    .foregroundStyle(iconColor)
+            }
+            Text(value)
+                .font(.system(size: 20, weight: .heavy, design: .rounded))
+                .foregroundStyle(.white)
+            Text(badge)
+                .font(.system(size: 10, weight: .bold))
+                .foregroundStyle(badgeColor)
+        }
+        .padding(14)
+        .background(Theme.card)
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).stroke(Theme.cardBorder, lineWidth: 1))
+    }
+
+    // Quick Search Preview Capsule
+    private var searchBarPreview: some View {
+        NavigationLink(value: Route.find("")) {
+            HStack(spacing: 12) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(.secondary)
+                Text("Search SKU, name or bin code...")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Image(systemName: "camera.viewfinder")
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundStyle(Theme.accent)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+            .background(Theme.card)
+            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Theme.cardBorder, lineWidth: 1))
         }
         .buttonStyle(.plain)
-        .onAppear { withAnimation(.easeInOut(duration: 1.8).repeatForever(autoreverses: true)) { pulse = true } }
-    }
-
-    private var quickLinks: some View {
-        HStack(spacing: 10) {
-            quick("Receive", "shippingbox.and.arrow.backward", .receive)
-            quick("Bins", "square.grid.3x3.fill", .bins)
-            quick("Activity", "clock.arrow.circlepath", .activity)
-        }
-        .padding(.horizontal, 20).padding(.top, 18)
-    }
-
-    private func quick(_ title: String, _ icon: String, _ route: Route) -> some View {
-        NavigationLink(value: route) {
-            Label(title, systemImage: icon).font(.footnote.weight(.semibold))
-                .frame(maxWidth: .infinity).padding(.vertical, 11)
-                .background(Color.white.opacity(0.06), in: Capsule())
-                .overlay(Capsule().strokeBorder(Theme.accent.opacity(0.35), lineWidth: 1))
-                .foregroundStyle(Theme.accent)
-        }.buttonStyle(.plain)
+        .padding(.horizontal, 20)
     }
 
     private var footer: some View {
         HStack(spacing: 12) {
-            Rectangle().fill(.white.opacity(0.12)).frame(height: 1)
-            Text("THAPPUMON").font(.footnote.weight(.medium)).tracking(7).foregroundStyle(.secondary)
-            Image(systemName: "magnifyingglass").font(.footnote).foregroundStyle(.secondary)
-            Rectangle().fill(.white.opacity(0.12)).frame(height: 1)
+            Rectangle().fill(Theme.cardBorder).frame(height: 1)
+            Text("BINFLOW").font(.footnote.weight(.black)).tracking(5).foregroundStyle(.secondary)
+            Image(systemName: "shippingbox").font(.footnote).foregroundStyle(Theme.accent)
+            Rectangle().fill(Theme.cardBorder).frame(height: 1)
         }
-        .padding(.horizontal, 20).padding(.vertical, 26)
+        .padding(.horizontal, 24)
+        .padding(.top, 12)
     }
 }
 
@@ -139,27 +274,25 @@ struct MenuCard: View {
 
     var body: some View {
         HStack(spacing: 16) {
-            Image(systemName: icon).font(.title2).foregroundStyle(color)
-                .shadow(color: color.opacity(0.9), radius: 6)
-                .frame(width: 52, height: 52)
-                .background(color.opacity(0.12), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            Image(systemName: icon).font(.title3).foregroundStyle(color)
+                .frame(width: 48, height: 48)
+                .background(color.opacity(0.12), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(color.opacity(0.25), lineWidth: 1))
+
             VStack(alignment: .leading, spacing: 3) {
-                Text(title).font(.headline).foregroundStyle(.white)
-                Text(subtitle).font(.subheadline).foregroundStyle(.secondary)
+                Text(title).font(.headline.weight(.bold)).foregroundStyle(.white)
+                Text(subtitle).font(.caption).foregroundStyle(.secondary)
             }
             Spacer()
-            Image(systemName: "chevron.right").font(.body.weight(.semibold)).foregroundStyle(.secondary)
+            Image(systemName: "chevron.right").font(.footnote.weight(.bold)).foregroundStyle(.secondary)
         }
         .padding(14)
-        .background(
-            LinearGradient(colors: [Color(white: 0.14), Color(white: 0.06)], startPoint: .top, endPoint: .bottom),
-            in: RoundedRectangle(cornerRadius: 22, style: .continuous)
-        )
+        .background(Theme.card, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .strokeBorder(LinearGradient(colors: [.white.opacity(0.35), .white.opacity(0.06)], startPoint: .top, endPoint: .bottom), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .strokeBorder(Theme.cardBorder, lineWidth: 1)
         )
-        .contentShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
     }
 }
 

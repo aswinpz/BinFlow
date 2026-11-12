@@ -21,13 +21,44 @@ struct BinFlowApp: App {
 }
 
 enum Theme {
-    static let accent = Color(red: 0.05, green: 0.80, blue: 0.90)   // neon cyan
+    static let accent = Color(red: 0x00/255, green: 0xF5/255, blue: 0xA0/255)   // electric neon mint (#00F5A0)
+    static let cyan = Color(red: 0x00/255, green: 0xD2/255, blue: 0xC4/255)     // neon cyan (#00D2C4)
     static let pink = Color(red: 1.0, green: 0.18, blue: 0.58)
     static let blue = Color(red: 0.20, green: 0.50, blue: 1.0)
-    static let green = Color(red: 0.20, green: 0.95, blue: 0.55)
-    static let warn = Color.orange
-    static let bg = Color(red: 0.02, green: 0.02, blue: 0.04)
-    static let card = Color(white: 0.09)
+    static let green = Color(red: 0x00/255, green: 0xF5/255, blue: 0xA0/255)
+    static let warn = Color(red: 0xF9/255, green: 0x73/255, blue: 0x16/255)     // neon coral (#F97316)
+    static let purple = Color(red: 0x7C/255, green: 0x3A/255, blue: 0xED/255)   // neon purple (#7C3AED)
+    static let bg = Color(red: 0x0B/255, green: 0x11/255, blue: 0x18/255)       // deep navy canvas (#0B1118)
+    static let card = Color(red: 0x12/255, green: 0x1B/255, blue: 0x26/255)     // dark card (#121B26)
+    static let cardBorder = Color(red: 0x1D/255, green: 0x2D/255, blue: 0x40/255) // border stroke (#1D2D40)
+    static let cardSubtle = Color(red: 0x1A/255, green: 0x28/255, blue: 0x38/255)
+    static let mintGradient = LinearGradient(colors: [accent, cyan], startPoint: .topLeading, endPoint: .bottomTrailing)
+}
+
+struct RadialProgressGauge: View {
+    var percent: Double
+    var title: String = "ALLOCATED"
+    var lineWidth: CGFloat = 8
+    
+    var body: some View {
+        ZStack {
+            Circle()
+                .stroke(Theme.cardBorder, lineWidth: lineWidth)
+            Circle()
+                .trim(from: 0, to: CGFloat(min(max(percent, 0.0), 1.0)))
+                .stroke(Theme.mintGradient, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+                .animation(.spring(response: 0.6, dampingFraction: 0.8), value: percent)
+            VStack(spacing: 2) {
+                Text("\(Int(percent * 100))%")
+                    .font(.system(size: 20, weight: .heavy, design: .rounded))
+                    .foregroundStyle(.white)
+                Text(title)
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
 }
 
 extension View {
@@ -35,13 +66,18 @@ extension View {
     func cardList() -> some View {
         self.listStyle(.plain).scrollContentBackground(.hidden).background(Theme.bg)
     }
-    /// Draws a list row as a rounded card.
+    /// Draws a list row as a rounded card matching reference design.
     func cardRow() -> some View {
-        self.listRowInsets(EdgeInsets(top: 10, leading: 30, bottom: 10, trailing: 26))
+        self.listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
             .listRowSeparator(.hidden)
             .listRowBackground(
-                RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Theme.card)
-                    .padding(.vertical, 4).padding(.horizontal, 16)
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(Theme.card)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .strokeBorder(Theme.cardBorder, lineWidth: 1)
+                    )
+                    .padding(.vertical, 3).padding(.horizontal, 16)
             )
     }
     /// Transparent row for headers placed above card rows.

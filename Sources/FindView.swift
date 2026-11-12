@@ -3,23 +3,39 @@ import SwiftUI
 struct ItemRow: View {
     let item: ItemInfo
     var body: some View {
-        HStack(alignment: .center, spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(item.name.isEmpty ? item.sku : item.name).font(.headline).lineLimit(2)
-                Text(item.sku).font(.caption.monospaced()).foregroundStyle(.secondary)
+        HStack(alignment: .center, spacing: 14) {
+            Image(systemName: item.available ? "shippingbox.fill" : "shippingbox")
+                .font(.title3)
+                .foregroundStyle(item.available ? Theme.cyan : Theme.warn)
+                .frame(width: 42, height: 42)
+                .background((item.available ? Theme.cyan : Theme.warn).opacity(0.12), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(item.name.isEmpty ? item.sku : item.name)
+                    .font(.headline.weight(.bold))
+                    .foregroundStyle(.white)
+                    .lineLimit(2)
+                Text(item.sku)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
                 let sub = [item.gender, item.category, item.family].filter { !$0.isEmpty }.joined(separator: " · ")
-                if !sub.isEmpty { Text(sub).font(.caption2).foregroundStyle(.secondary).lineLimit(1) }
+                if !sub.isEmpty {
+                    Text(sub)
+                        .font(.caption2)
+                        .foregroundStyle(Theme.accent.opacity(0.85))
+                        .lineLimit(1)
+                }
             }
             Spacer(minLength: 8)
             if item.available {
                 VStack(alignment: .trailing, spacing: 4) {
                     ForEach(Array(item.bins.prefix(2)), id: \.self) { BinChip(code: $0) }
                     if item.bins.count > 2 {
-                        Text("+\(item.bins.count - 2) more").font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
+                        Text("+\(item.bins.count - 2) more").font(.caption2.weight(.bold)).foregroundStyle(.secondary)
                     }
                 }
             } else {
-                Text("Unavailable").font(.caption.weight(.semibold))
+                Text("Unavailable").font(.caption.weight(.bold))
                     .padding(.horizontal, 10).padding(.vertical, 5)
                     .background(Theme.warn.opacity(0.15), in: Capsule()).foregroundStyle(Theme.warn)
             }
