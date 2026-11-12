@@ -18,7 +18,7 @@ targets:
         MARKETING_VERSION: "1.0"
         CURRENT_PROJECT_VERSION: "1"
         GENERATE_INFOPLIST_FILE: YES
-        INFOPLIST_KEY_CFBundleDisplayName: "തപ്പുമോൻ🔎"
+        INFOPLIST_KEY_CFBundleDisplayName: "CAMPX DXB"
         INFOPLIST_KEY_NSCameraUsageDescription: "Scan SKU labels with OCR or compare a shoe photo with catalog images to find its bin."
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES

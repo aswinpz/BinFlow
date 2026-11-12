@@ -90,7 +90,7 @@ struct HomeView: View {
             .binflowDestinations()
             .sheet(isPresented: $scanning) { ScanSheet { handle($0) } }
             .sheet(isPresented: $adding) { EditItemSheet(sku: nil) }
-            .confirmationDialog("Close BinFlow?", isPresented: $confirmExit, titleVisibility: .visible) {
+            .confirmationDialog("Close CAMPX DXB?", isPresented: $confirmExit, titleVisibility: .visible) {
                 Button("Close app", role: .destructive) { exit(0) }
             } message: { Text("Your spreadsheet is already saved after every change.") }
         }

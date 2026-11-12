@@ -1,4 +1,4 @@
-# BinFlow – iOS bin find & allocate
+# CAMPX DXB – iOS bin find & allocate
 
 SwiftUI + SwiftData, iOS 17+. Tabs: Find, Allocate, Bins, Activity.
 

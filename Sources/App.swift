@@ -168,7 +168,7 @@ struct RootView: View {
             case .failure(let e): store.error = e.localizedDescription
             }
         }
-        .alert("BinFlow", isPresented: Binding(get: { store.error != nil }, set: { if !$0 { store.error = nil } })) {
+        .alert("CAMPX DXB", isPresented: Binding(get: { store.error != nil }, set: { if !$0 { store.error = nil } })) {
             Button("OK", role: .cancel) {}
         } message: {
             Text(store.error ?? "")
@@ -185,7 +185,7 @@ struct SetupView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
                 .shadow(color: .black.opacity(0.12), radius: 12, y: 6)
             Text("Connect your spreadsheet").font(.title2.bold())
-            Text("Choose your Excel file (for example camper_master.xlsx). BinFlow reads Sheet1 and writes every change straight back into the same file.\n\nA SKU with an empty Bin cell shows as Unavailable.")
+            Text("Choose your Excel file (for example camper_master.xlsx). CAMPX DXB reads Sheet1 and writes every change straight back into the same file.\n\nA SKU with an empty Bin cell shows as Unavailable.")
                 .multilineTextAlignment(.center).foregroundStyle(.secondary)
             Button { store.showPicker = true } label: {
                 Label("Choose Excel file", systemImage: "folder").frame(maxWidth: .infinity)

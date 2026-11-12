@@ -75,7 +75,7 @@ struct SettingsView: View {
                 Toggle("Reload when app opens", isOn: $autoReload)
                 Button("Disconnect file", systemImage: "link.badge.minus", role: .destructive) { confirmDisconnect = true }
             } header: { Text("Excel file") } footer: {
-                Text("BinFlow reads Sheet1 and saves every change straight into this file. If Excel or another app edits it, reload to pick up the changes.")
+                Text("CAMPX DXB reads Sheet1 and saves every change straight into this file. If Excel or another app edits it, reload to pick up the changes.")
             }
 
             Section {
