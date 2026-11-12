@@ -258,7 +258,7 @@ final class Store {
     }
 
     /// Serializes and writes a workbook snapshot away from the UI thread.
-    private func persistRowsInBackground(_ nextRows: [SheetRow]) async -> String? {
+    @MainActor private func persistRowsInBackground(_ nextRows: [SheetRow]) async -> String? {
         guard !isSaving else { return "Please wait for the current save to finish." }
         guard var nextWorkbook = workbook, let url = fileURL else { return "Choose an Excel file before making changes." }
         nextWorkbook.rows = nextRows
@@ -332,7 +332,7 @@ final class Store {
     // MARK: Edits (each one is saved to the Excel file immediately)
 
     /// Stock arrived: put the SKU into one or more bins.
-    func assign(sku: String, bin: String) async -> String? {
+    @MainActor func assign(sku: String, bin: String) async -> String? {
         let codes = BinCode.parse(bin)
         guard !codes.isEmpty else { return "Enter a bin such as A12." }
         guard let existing = itemIndex[sku], let base = rows.first(where: { $0.sku == sku }) else { return "Unknown SKU." }
@@ -392,7 +392,7 @@ final class Store {
         return nil
     }
 
-    func addItem(sku rawSku: String, name: String, gender: String, category: String, family: String, bin: String) async -> String? {
+    @MainActor func addItem(sku rawSku: String, name: String, gender: String, category: String, family: String, bin: String) async -> String? {
         let sku = rawSku.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !sku.isEmpty else { return "SKU is required." }
         guard itemIndex[sku] == nil else { return "SKU \(sku) already exists." }
