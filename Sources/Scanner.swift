@@ -118,6 +118,8 @@ struct ScanSheet: View {
     @State private var zoom = 1.0
     @State private var handle = ScannerHandle()
     @State private var reading = false
+    @State private var matching = false
+    @State private var visualMatches: [VisualMatch] = []
     @State private var hint = "Point at the SKU, e.g. K300530-007"
 
     var body: some View {
@@ -129,22 +131,66 @@ struct ScanSheet: View {
                     }
                     .ignoresSafeArea()
                     .overlay(alignment: .bottom) {
-                        VStack(spacing: 14) {
-                            HStack(spacing: 8) {
-                                ForEach([1.0, 2.0, 3.0, 4.0], id: \.self) { z in
-                                    Button { zoom = z } label: {
-                                        Text("\(Int(z))x").font(.footnote.weight(.bold).monospacedDigit())
-                                            .frame(width: 44, height: 34)
-                                            .background(zoom == z ? Theme.accent : Color.black.opacity(0.55), in: Capsule())
-                                            .foregroundStyle(zoom == z ? Color.black : Color.white)
+                        VStack(spacing: 12) {
+                            if !visualMatches.isEmpty {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    Text("Approximate visual matches — choose the correct shoe")
+                                        .font(.caption.weight(.bold)).foregroundStyle(.primary)
+                                    ForEach(visualMatches) { match in
+                                        Button {
+                                            onScan(match.item.sku)
+                                            dismiss()
+                                        } label: {
+                                            HStack(spacing: 10) {
+                                                CamperProductImage(sku: match.item.sku, size: 58)
+                                                VStack(alignment: .leading, spacing: 3) {
+                                                    Text(match.item.name.isEmpty ? match.item.sku : match.item.name)
+                                                        .font(.subheadline.weight(.bold)).lineLimit(1)
+                                                    Text(match.item.sku).font(.caption.monospaced()).foregroundStyle(.secondary)
+                                                    Text(match.item.bins.isEmpty ? "No bin assigned" : "Bin: \(match.item.bins.joined(separator: ", "))")
+                                                        .font(.caption2).foregroundStyle(match.item.available ? Theme.accent : Theme.warn)
+                                                        .lineLimit(1)
+                                                }
+                                                Spacer(minLength: 0)
+                                                Image(systemName: "chevron.right").font(.caption.bold())
+                                            }
+                                            .padding(8)
+                                            .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14))
+                                        }
+                                        .buttonStyle(.plain)
+                                        .foregroundStyle(.primary)
+                                    }
+                                    Text("Only a sample of catalog products is checked. Compare the photo carefully; use OCR or search if it isn't listed.")
+                                        .font(.caption2).foregroundStyle(.secondary)
+                                }
+                                .padding(12)
+                                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                                .padding(.horizontal, 12)
+                            }
+
+                            VStack(spacing: 9) {
+                                HStack(spacing: 8) {
+                                    ForEach([1.0, 2.0, 3.0, 4.0], id: \.self) { z in
+                                        Button { zoom = z } label: {
+                                            Text("\(Int(z))x").font(.footnote.weight(.bold).monospacedDigit())
+                                                .frame(width: 44, height: 34)
+                                                .background(zoom == z ? Theme.accent : Color.black.opacity(0.55), in: Capsule())
+                                                .foregroundStyle(zoom == z ? Color.black : Color.white)
+                                        }
                                     }
                                 }
-                                Button { readPhoto() } label: {
-                                    Label(reading ? "Reading…" : "Read photo", systemImage: "camera.aperture")
-                                        .font(.footnote.weight(.bold))
-                                        .padding(.horizontal, 12).frame(height: 34)
-                                        .background(Theme.pink, in: Capsule()).foregroundStyle(.white)
-                                }.disabled(reading)
+                                HStack(spacing: 10) {
+                                    Button { readPhoto() } label: {
+                                        Label(reading ? "Reading…" : "Read SKU", systemImage: "camera.aperture")
+                                            .font(.footnote.weight(.bold)).frame(maxWidth: .infinity).frame(height: 42)
+                                            .background(Theme.pink, in: Capsule()).foregroundStyle(.white)
+                                    }.disabled(reading || matching)
+                                    Button { identifyShoe() } label: {
+                                        Label(matching ? "Matching…" : "Identify shoe", systemImage: "photo.magnifyingglass")
+                                            .font(.footnote.weight(.bold)).frame(maxWidth: .infinity).frame(height: 42)
+                                            .background(Theme.accent, in: Capsule()).foregroundStyle(.black)
+                                    }.disabled(reading || matching)
+                                }
                             }
                             Label(hint, systemImage: "text.viewfinder")
                                 .font(.subheadline.weight(.semibold))
@@ -180,6 +226,30 @@ struct ScanSheet: View {
                 else { hint = "No SKU found. Move closer and try again" }
             } catch {
                 hint = "Couldn't take the photo. Try again"
+            }
+        }
+    }
+
+    /// Captures the current camera view and compares it with official Camper catalog thumbnails.
+    private func identifyShoe() {
+        guard let vc = handle.vc, !matching else { return }
+        matching = true
+        visualMatches = []
+        hint = "Comparing with Camper catalog images…"
+        let catalog = store.items
+        Task {
+            defer { matching = false }
+            do {
+                let image = try await vc.capturePhoto()
+                let found = await Task.detached(priority: .userInitiated) {
+                    await CamperVisualMatcher.matches(photo: image, items: catalog, limit: 48)
+                }.value
+                visualMatches = found
+                hint = found.isEmpty
+                    ? "No catalog image match. Use OCR or search instead."
+                    : "Review the closest matches below and choose the right item."
+            } catch {
+                hint = "Couldn't capture the shoe photo. Try again or use OCR."
             }
         }
     }

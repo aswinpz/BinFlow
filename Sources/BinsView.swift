@@ -30,7 +30,7 @@ struct BinsView: View {
                                     VStack(alignment: .leading, spacing: 2) {
                                         Text(code)
                                             .font(.headline.monospaced().weight(.heavy))
-                                            .foregroundStyle(.white)
+                                            .foregroundStyle(Theme.primaryText)
                                         Text("Zone \(z.id) • Rack Location")
                                             .font(.caption2)
                                             .foregroundStyle(.secondary)
@@ -43,7 +43,7 @@ struct BinsView: View {
                         }
                     } header: {
                         HStack {
-                            Text("Zone \(z.id)").font(.headline.weight(.bold)).foregroundStyle(.white)
+                            Text("Zone \(z.id)").font(.headline.weight(.bold)).foregroundStyle(Theme.primaryText)
                             Spacer()
                             Text("\(z.bins.count) bins").font(.subheadline).foregroundStyle(.secondary)
                         }
@@ -95,7 +95,7 @@ struct BinDetail: View {
                     VStack(spacing: 2) {
                         Text("\(list.count)")
                             .font(.system(size: 36, weight: .heavy, design: .rounded))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(Theme.primaryText)
                         Text("SKUs IN BIN")
                             .font(.system(size: 9, weight: .black))
                             .foregroundStyle(Theme.accent)
@@ -142,7 +142,7 @@ struct BinDetail: View {
             HStack {
                 Text("SKUS IN THIS LOCATION")
                     .font(.system(size: 12, weight: .black))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(Theme.primaryText)
                 Spacer()
                 Text("\(list.count) Registered")
                     .font(.caption2.weight(.semibold))
@@ -163,7 +163,7 @@ struct BinDetail: View {
                         VStack(alignment: .leading, spacing: 3) {
                             Text(it.name.isEmpty ? it.sku : it.name)
                                 .font(.headline.weight(.bold))
-                                .foregroundStyle(.white)
+                                .foregroundStyle(Theme.primaryText)
                                 .lineLimit(1)
                             Text(it.sku)
                                 .font(.caption.monospaced())
@@ -205,7 +205,7 @@ struct BinDetail: View {
         }
     }
 
-    private func detailStat(title: String, value: String, highlight: Color = .white) -> some View {
+    private func detailStat(title: String, value: String, highlight: Color = Theme.primaryText) -> some View {
         VStack(spacing: 2) {
             Text(title)
                 .font(.system(size: 8, weight: .bold))
@@ -266,7 +266,7 @@ struct AddSKUDirectToBinSheet: View {
                                     skuText = it.sku
                                 } label: {
                                     VStack(alignment: .leading, spacing: 2) {
-                                        Text(it.sku).font(.subheadline.bold()).foregroundStyle(.white)
+                                        Text(it.sku).font(.subheadline.bold()).foregroundStyle(Theme.primaryText)
                                         if !it.name.isEmpty { Text(it.name).font(.caption).foregroundStyle(.secondary) }
                                     }
                                 }

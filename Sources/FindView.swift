@@ -13,7 +13,7 @@ struct ItemRow: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text(item.name.isEmpty ? item.sku : item.name)
                     .font(.headline.weight(.bold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(Theme.primaryText)
                     .lineLimit(2)
                 Text(item.sku)
                     .font(.caption.monospaced())
@@ -112,7 +112,15 @@ struct FindView: View {
             .searchable(text: $text, prompt: "SKU, name, family or bin")
             .toolbar {
                 ToolbarItemGroup(placement: .topBarTrailing) {
-                    Button { scanning = true } label: { Image(systemName: "text.viewfinder") }
+                    Button { scanning = true } label: {
+                        Image(systemName: "text.viewfinder")
+                            .font(.system(size: 23, weight: .bold))
+                            .foregroundStyle(Theme.accent)
+                            .frame(width: 46, height: 46)
+                            .background(Theme.accent.opacity(0.14), in: Circle())
+                            .overlay(Circle().stroke(Theme.accent.opacity(0.5), lineWidth: 1))
+                    }
+                    .accessibilityLabel("Scan SKU with OCR")
                     Button { adding = true } label: { Image(systemName: "plus") }
                     FileMenu()
                 }
@@ -160,6 +168,18 @@ struct ItemDetail: View {
                     }
                     .padding(.vertical, 6)
                 }
+                Section {
+                    HStack(spacing: 14) {
+                        CamperProductImage(sku: item.sku, size: 132)
+                        VStack(alignment: .leading, spacing: 8) {
+                            Label("Camper catalog image", systemImage: "globe")
+                                .font(.subheadline.weight(.semibold))
+                            Text("Loads when an internet connection is available. Bin details and spreadsheet search continue to work offline.")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                    .padding(.vertical, 4)
+                } header: { Text("Product") }
                 if item.available {
                     Section {
                         ForEach(item.bins, id: \.self) { code in
@@ -286,10 +306,23 @@ struct EditItemSheet: View {
     @State private var family = ""
     @State private var bin = ""
     @State private var problem: String?
+    @State private var scanning = false
+    @State private var lastAutoGender = ""
 
     var body: some View {
         NavigationStack {
             Form {
+                if sku == nil {
+                    Section {
+                        Button { scanning = true } label: {
+                            Label("Scan label with OCR", systemImage: "text.viewfinder")
+                                .font(.headline.weight(.semibold))
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        Text("Scanning fills the SKU. Gender is suggested from the SKU prefix; you can edit any field before saving.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    } header: { Text("Quick entry") }
+                }
                 Section {
                     TextField("SKU", text: $skuText).textInputAutocapitalization(.characters).autocorrectionDisabled()
                     TextField("Name", text: $name)
@@ -324,6 +357,26 @@ struct EditItemSheet: View {
                     skuText = it.sku; name = it.name; gender = it.gender; category = it.category; family = it.family
                 }
             }
+            .onChange(of: skuText) { _, newValue in
+                if sku == nil { applyGenderHint(for: newValue) }
+            }
+            .sheet(isPresented: $scanning) {
+                ScanSheet { scannedSKU in
+                    skuText = scannedSKU
+                    applyGenderHint(for: scannedSKU)
+                }
+            }
         }
+    }
+
+    private func applyGenderHint(for rawSKU: String) {
+        let prefix = rawSKU.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        let suggestion: String?
+        if prefix.hasPrefix("K1") || prefix.hasPrefix("K3") { suggestion = "Men" }
+        else if prefix.hasPrefix("K4") { suggestion = "Women" }
+        else { suggestion = nil }
+        guard let suggestion, gender.trimmed.isEmpty || gender == lastAutoGender else { return }
+        gender = suggestion
+        lastAutoGender = suggestion
     }
 }

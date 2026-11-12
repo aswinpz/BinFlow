@@ -47,7 +47,15 @@ struct ReceiveView: View {
             .searchable(text: $text, prompt: "SKU or name")
             .toolbar {
                 ToolbarItemGroup(placement: .topBarTrailing) {
-                    Button { scanning = true } label: { Image(systemName: "text.viewfinder") }
+                    Button { scanning = true } label: {
+                        Image(systemName: "text.viewfinder")
+                            .font(.system(size: 23, weight: .bold))
+                            .foregroundStyle(Theme.accent)
+                            .frame(width: 46, height: 46)
+                            .background(Theme.accent.opacity(0.14), in: Circle())
+                            .overlay(Circle().stroke(Theme.accent.opacity(0.5), lineWidth: 1))
+                    }
+                    .accessibilityLabel("Scan SKU with OCR")
                     Button { adding = true } label: { Image(systemName: "plus") }
                 }
             }
