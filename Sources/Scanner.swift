@@ -105,40 +105,34 @@ enum SKUMatch {
         guard (try? handler.perform([request])) != nil else { return nil }
         let lines = (request.results ?? [])
             .sorted { $0.boundingBox.midY > $1.boundingBox.midY }
-            .compactMap { observation -> (String, CGFloat)? in
-                guard let text = observation.topCandidates(3).first?.string else { return nil }
-                return (text, observation.boundingBox.midY)
+            .map { observation in
+                (observation.topCandidates(3).map(\.string), observation.boundingBox.midY, observation.boundingBox.minX)
             }
-        guard let skuLine = lines.first(where: { code(in: $0.0) != nil }),
-              let sku = code(in: skuLine.0) else { return nil }
+        guard let skuLine = lines.first(where: { line in line.0.contains(where: { code(in: $0) != nil }) }),
+              let sku = skuLine.0.compactMap({ code(in: $0) }).first else { return nil }
 
+        // Camper prints the model name on the first line directly below the SKU.
+        // Vision's normalized Y axis grows upward, so the next lower line has a smaller Y.
         let excluded = ["CAMPER", "WWW", "SCAN", "SIZE", "COLOR", "COLOUR", "MADE IN", "LEATHER", "RUBBER", "TEXTILE", "UPPER", "LINING", "SOLE", "WOMEN", "WOMENS", "MEN", "MENS"]
-        let nameCandidates = lines.compactMap { text, y -> (String, CGFloat)? in
-            guard code(in: text) == nil else { return nil }
-            let cleaned = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        func productNameCandidate(_ raw: String) -> String? {
+            let cleaned = raw.trimmingCharacters(in: .whitespacesAndNewlines)
                 .trimmingCharacters(in: CharacterSet(charactersIn: "|•·:;,.—–-"))
             let upper = cleaned.uppercased()
-            guard cleaned.count >= 4, cleaned.count <= 36,
+            guard cleaned.count >= 3, cleaned.count <= 36,
                   !excluded.contains(where: { upper.contains($0) }),
-                  cleaned.rangeOfCharacter(from: .decimalDigits) == nil else { return nil }
-            let words = cleaned.split(whereSeparator: { !$0.isLetter && !$0.isWhitespace })
-            guard words.count >= 2, cleaned.contains(where: \.isLetter) else { return nil }
-            return (cleaned, y)
+                  cleaned.rangeOfCharacter(from: .decimalDigits) == nil,
+                  cleaned.contains(where: \.isLetter) else { return nil }
+            return cleaned
         }
-        let name = nameCandidates.max { lhs, rhs in
-            labelNameScore(lhs.0, y: lhs.1, skuY: skuLine.1) < labelNameScore(rhs.0, y: rhs.1, skuY: skuLine.1)
-        }?.0 ?? ""
+        let name = lines
+            .filter { $0.1 < skuLine.1 && skuLine.1 - $0.1 <= 0.12 && $0.2 < 0.68 }
+            .sorted { $0.1 > $1.1 }
+            .compactMap { line in line.0.compactMap(productNameCandidate).first }
+            .first ?? ""
         let prefix = String(sku.prefix(2)).uppercased()
         let gender = ["K1", "K3"].contains(prefix) ? "Men" : (["K2", "K4"].contains(prefix) ? "Women" : "")
         let family = name.split(whereSeparator: \.isWhitespace).first.map(String.init) ?? ""
         return LabelAutofill(sku: sku, name: name, gender: gender, family: family)
-    }
-
-    private static func labelNameScore(_ text: String, y: CGFloat, skuY: CGFloat) -> CGFloat {
-        let wordCount = text.split(whereSeparator: \.isWhitespace).count
-        let proximity = max(0, 1 - abs(y - skuY) * 2)
-        let lowerLabelBias: CGFloat = y < 0.55 ? 0.5 : 0
-        return (wordCount == 2 ? 2 : 1) + proximity + lowerLabelBias - CGFloat(text.count) / 100
     }
 
     private static func orientation(_ o: UIImage.Orientation) -> CGImagePropertyOrientation {
