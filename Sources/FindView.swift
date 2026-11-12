@@ -47,30 +47,21 @@ struct FindView: View {
     @Environment(Store.self) private var store
     @State private var text = ""
     @State private var filter = Filter.all
+    @State private var results: [ItemInfo] = []
     @State private var scanning = false
     @State private var adding = false
 
     init(initialText: String = "") { _text = State(initialValue: initialText) }
 
-    enum Filter: String, CaseIterable { case all = "All", available = "Available", unavailable = "Unavailable" }
+    enum Filter: String, CaseIterable, Sendable { case all = "All", available = "Available", unavailable = "Unavailable" }
 
-    private var results: [ItemInfo] {
-        let q = text.trimmed
-        return store.items.filter { it in
-            if filter == .available && !it.available { return false }
-            if filter == .unavailable && it.available { return false }
-            if q.isEmpty { return true }
-            return it.sku.localizedCaseInsensitiveContains(q) || it.name.localizedCaseInsensitiveContains(q)
-                || it.family.localizedCaseInsensitiveContains(q) || it.category.localizedCaseInsensitiveContains(q)
-                || it.bins.contains { $0.localizedCaseInsensitiveContains(q) }
-        }
-    }
+    private var searchTaskID: String { "\(store.searchRevision)|\(filter.rawValue)|\(text)" }
 
     private func count(_ f: Filter) -> Int {
         switch f {
         case .all: return store.items.count
-        case .available: return store.items.filter { $0.available }.count
-        case .unavailable: return store.items.filter { !$0.available }.count
+        case .available: return store.availableCount
+        case .unavailable: return store.unavailableCount
         }
     }
     private func tint(_ f: Filter) -> Color { f == .unavailable ? Theme.warn : Theme.accent }
@@ -127,6 +118,23 @@ struct FindView: View {
             }
             .sheet(isPresented: $scanning) { ScanSheet { text = $0 } }
             .sheet(isPresented: $adding) { EditItemSheet(sku: nil) }
+        }
+        .task(id: searchTaskID) {
+            try? await Task.sleep(nanoseconds: 80_000_000)
+            guard !Task.isCancelled else { return }
+            let query = SearchText.normalized(text.trimmed)
+            let activeFilter = filter
+            let snapshot = store.searchDocuments
+            let matches = await Task.detached(priority: .userInitiated) {
+                snapshot.compactMap { document -> ItemInfo? in
+                    if activeFilter == .available && !document.isAvailable { return nil }
+                    if activeFilter == .unavailable && document.isAvailable { return nil }
+                    guard query.isEmpty || document.searchableText.contains(query) else { return nil }
+                    return document.item
+                }
+            }.value
+            guard !Task.isCancelled else { return }
+            results = matches
         }
     }
 }
@@ -278,15 +286,26 @@ struct AssignBinSheet: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
-                        let err: String?
+                    Button {
                         if let from = moveFrom {
-                            err = store.moveBin(sku: sku, from: from, to: text)
+                            if let err = store.moveBin(sku: sku, from: from, to: text) {
+                                problem = err
+                            } else {
+                                dismiss()
+                            }
                         } else {
-                            err = store.assign(sku: sku, bin: text)
+                            Task {
+                                if let err = await store.assign(sku: sku, bin: text) {
+                                    problem = err
+                                } else {
+                                    dismiss()
+                                }
+                            }
                         }
-                        if let err { problem = err } else { dismiss() }
-                    }.disabled(codes.isEmpty)
+                    } label: {
+                        if store.isSaving { ProgressView() } else { Text("Save") }
+                    }
+                    .disabled(codes.isEmpty || store.isSaving)
                 }
             }
         }
@@ -340,15 +359,27 @@ struct EditItemSheet: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(sku == nil ? "Add" : "Save") {
-                        let err: String?
+                    Button {
                         if let sku {
-                            err = store.updateItem(sku: sku, newSku: skuText, name: name, gender: gender, category: category, family: family)
+                            if let err = store.updateItem(sku: sku, newSku: skuText, name: name, gender: gender, category: category, family: family) {
+                                problem = err
+                            } else {
+                                dismiss()
+                            }
                         } else {
-                            err = store.addItem(sku: skuText, name: name, gender: gender, category: category, family: family, bin: bin)
+                            Task {
+                                if let err = await store.addItem(sku: skuText, name: name, gender: gender, category: category, family: family, bin: bin) {
+                                    problem = err
+                                } else {
+                                    dismiss()
+                                }
+                            }
                         }
-                        if let err { problem = err } else { dismiss() }
-                    }.disabled(skuText.trimmed.isEmpty)
+                    } label: {
+                        if sku == nil && store.isSaving { ProgressView() }
+                        else { Text(sku == nil ? "Add" : "Save") }
+                    }
+                    .disabled(skuText.trimmed.isEmpty || store.isSaving)
                 }
             }
             .onAppear {

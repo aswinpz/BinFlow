@@ -3,13 +3,12 @@ import SwiftUI
 struct BinsView: View {
     @Environment(Store.self) private var store
     @State private var text = ""
+    @State private var visibleBins: [String] = []
 
     private struct ZoneGroup: Identifiable { let id: String; let bins: [String] }
 
     private var zones: [ZoneGroup] {
-        let q = text.trimmed
-        let bins = q.isEmpty ? store.allBins : store.allBins.filter { $0.localizedCaseInsensitiveContains(q) }
-        let grouped = Dictionary(grouping: bins) { BinCode.zone($0) }
+        let grouped = Dictionary(grouping: visibleBins) { BinCode.zone($0) }
         return grouped.keys.sorted().map { ZoneGroup(id: $0, bins: grouped[$0] ?? []) }
     }
 
@@ -61,6 +60,17 @@ struct BinsView: View {
             .navigationTitle("Bin Explorer")
             .searchable(text: $text, prompt: "Search bin code, e.g. A02")
             .toolbar { FileMenu() }
+        }
+        .task(id: "\(store.searchRevision)|\(text)") {
+            try? await Task.sleep(nanoseconds: 80_000_000)
+            guard !Task.isCancelled else { return }
+            let query = SearchText.normalized(text.trimmed)
+            let snapshot = store.allBins
+            let matches = await Task.detached(priority: .userInitiated) {
+                snapshot.filter { query.isEmpty || SearchText.normalized($0).contains(query) }
+            }.value
+            guard !Task.isCancelled else { return }
+            visibleBins = matches
         }
     }
 }
@@ -228,6 +238,7 @@ struct AddSKUDirectToBinSheet: View {
     @Environment(Store.self) private var store
     @Environment(\.dismiss) private var dismiss
     @State private var skuText = ""
+    @State private var matches: [ItemInfo] = []
     @State private var scanning = false
     @State private var problem: String?
 
@@ -257,18 +268,15 @@ struct AddSKUDirectToBinSheet: View {
                 }
 
                 // Suggestions from existing SKUs
-                if !skuText.isEmpty {
-                    let matches = store.items.filter { $0.sku.localizedCaseInsensitiveContains(skuText.trimmed) }
-                    if !matches.isEmpty {
-                        Section("Matching catalog SKUs") {
-                            ForEach(Array(matches.prefix(5))) { it in
-                                Button {
-                                    skuText = it.sku
-                                } label: {
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(it.sku).font(.subheadline.bold()).foregroundStyle(Theme.primaryText)
-                                        if !it.name.isEmpty { Text(it.name).font(.caption).foregroundStyle(.secondary) }
-                                    }
+                if !matches.isEmpty {
+                    Section("Matching catalog SKUs") {
+                        ForEach(matches) { it in
+                            Button {
+                                skuText = it.sku
+                            } label: {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(it.sku).font(.subheadline.bold()).foregroundStyle(Theme.primaryText)
+                                    if !it.name.isEmpty { Text(it.name).font(.caption).foregroundStyle(.secondary) }
                                 }
                             }
                         }
@@ -282,20 +290,36 @@ struct AddSKUDirectToBinSheet: View {
                     Button("Cancel") { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Add to Bin") {
-                        if let err = store.assign(sku: skuText.trimmed, bin: targetBin) {
-                            problem = err
-                        } else {
-                            dismiss()
+                    Button {
+                        Task {
+                            if let err = await store.assign(sku: skuText.trimmed, bin: targetBin) {
+                                problem = err
+                            } else {
+                                dismiss()
+                            }
                         }
+                    } label: {
+                        if store.isSaving { ProgressView() } else { Text("Add to Bin") }
                     }
-                    .disabled(skuText.trimmed.isEmpty)
+                    .disabled(skuText.trimmed.isEmpty || store.isSaving)
                 }
             }
             .sheet(isPresented: $scanning) {
                 ScanSheet { code in
                     skuText = code
                 }
+            }
+            .task(id: "\(store.searchRevision)|\(skuText)") {
+                try? await Task.sleep(nanoseconds: 80_000_000)
+                guard !Task.isCancelled else { return }
+                let query = SearchText.normalized(skuText.trimmed)
+                guard !query.isEmpty else { matches = []; return }
+                let snapshot = store.searchDocuments
+                let found = await Task.detached(priority: .userInitiated) {
+                    snapshot.lazy.filter { $0.normalizedSKU.contains(query) }.prefix(5).map(\.item)
+                }.value
+                guard !Task.isCancelled else { return }
+                matches = found
             }
         }
         .presentationDetents([.medium, .large])

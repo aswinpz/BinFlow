@@ -3,7 +3,7 @@ import Observation
 
 // MARK: - Value types
 
-struct ItemInfo: Identifiable, Hashable {
+struct ItemInfo: Identifiable, Hashable, Sendable {
     var id: String { sku }
     let sku: String
     var name = "", gender = "", category = "", family = ""
@@ -13,6 +13,13 @@ struct ItemInfo: Identifiable, Hashable {
 }
 
 struct BinRef: Hashable { let code: String }
+
+struct ItemSearchDocument: Sendable {
+    let item: ItemInfo
+    let normalizedSKU: String
+    let searchableText: String
+    let isAvailable: Bool
+}
 
 struct LogEntry: Codable, Identifiable {
     var id = UUID()
@@ -49,6 +56,12 @@ enum BinCode {
     static func zone(_ code: String) -> String { code.first.map { String($0) } ?? "?" }
 }
 
+enum SearchText {
+    static func normalized(_ value: String) -> String {
+        value.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+    }
+}
+
 // MARK: - Store
 
 @Observable
@@ -60,12 +73,17 @@ final class Store {
     var error: String?
     var showPicker = false
     var log: [LogEntry] = []
+    private(set) var searchRevision = 0
+    private(set) var availableCount = 0
+    private(set) var unavailableCount = 0
+    private(set) var isSaving = false
     private(set) var fileURL: URL?
 
     @ObservationIgnored private var rows: [SheetRow] = []
     @ObservationIgnored private var workbook: Workbook?
     @ObservationIgnored private var itemIndex: [String: ItemInfo] = [:]
     @ObservationIgnored private var binIndex: [String: [String]] = [:]
+    @ObservationIgnored private(set) var searchDocuments: [ItemSearchDocument] = []
     @ObservationIgnored private var loadedData = Data()
     @ObservationIgnored private var loadedStamp: Date?
     @ObservationIgnored private var scoped = false
@@ -107,6 +125,15 @@ final class Store {
         binIndex = bins
         items = order.compactMap { map[$0] }
         allBins = bins.keys.sorted()
+        searchDocuments = items.map { item in
+            let fields = [item.sku, item.name, item.family, item.category, item.bins.joined(separator: " ")]
+            return ItemSearchDocument(item: item, normalizedSKU: SearchText.normalized(item.sku),
+                                      searchableText: SearchText.normalized(fields.joined(separator: " ")),
+                                      isAvailable: item.available)
+        }
+        availableCount = items.filter(\.available).count
+        unavailableCount = items.count - availableCount
+        searchRevision &+= 1
     }
 
     // MARK: File access
@@ -138,12 +165,12 @@ final class Store {
 
     private func load() throws {
         guard let url = fileURL else { return }
-        let data = try readData(url)
+        let data = try Self.readData(url)
         let wb = try Workbook.load(data)
         workbook = wb
         rows = wb.rows
         loadedData = data
-        loadedStamp = modDate(url)
+        loadedStamp = Self.modDate(url)
         fileName = url.lastPathComponent
         hasFile = true
         rebuild()
@@ -172,15 +199,15 @@ final class Store {
 
     /// Called when the app comes to the foreground: picks up edits made in Excel.
     func refreshFromDisk() {
-        guard hasFile, let url = fileURL, modDate(url) != loadedStamp else { return }
-        if let d = try? readData(url), d != loadedData { _ = try? load() } else { loadedStamp = modDate(url) }
+        guard hasFile, let url = fileURL, Self.modDate(url) != loadedStamp else { return }
+        if let d = try? Self.readData(url), d != loadedData { _ = try? load() } else { loadedStamp = Self.modDate(url) }
     }
 
-    private func modDate(_ u: URL) -> Date? {
+    private static func modDate(_ u: URL) -> Date? {
         (try? u.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
     }
 
-    private func readData(_ url: URL) throws -> Data {
+    private static func readData(_ url: URL) throws -> Data {
         var coordError: NSError?
         var result: Result<Data, Error>?
         NSFileCoordinator().coordinate(readingItemAt: url, options: [], error: &coordError) { u in
@@ -191,7 +218,7 @@ final class Store {
         return try result.get()
     }
 
-    private func writeData(_ data: Data, to url: URL) throws {
+    private static func writeData(_ data: Data, to url: URL) throws {
         var coordError: NSError?
         var failure: Error?
         NSFileCoordinator().coordinate(writingItemAt: url, options: .forReplacing, error: &coordError) { u in
@@ -206,22 +233,75 @@ final class Store {
     private func save() -> SaveResult {
         guard var wb = workbook, let url = fileURL else { return .failed("no file selected") }
         // Someone else (Excel, OneDrive...) changed the file since we read it? Don't overwrite their work.
-        if let stamp = loadedStamp, modDate(url) != stamp,
-           let current = try? readData(url), current != loadedData {
+        if let stamp = loadedStamp, Self.modDate(url) != stamp,
+           let current = try? Self.readData(url), current != loadedData {
             reload()
             return .reloaded
         }
         do {
             wb.rows = rows
             let data = try wb.serialize()
-            try writeData(data, to: url)
+            try Self.writeData(data, to: url)
             workbook = wb
             loadedData = data
-            loadedStamp = modDate(url)
+            loadedStamp = Self.modDate(url)
             return .ok
         } catch {
             return .failed(error.localizedDescription)
         }
+    }
+
+    private enum SnapshotSaveResult: Sendable {
+        case saved(Data, Date?)
+        case conflict
+        case failed(String)
+    }
+
+    /// Serializes and writes a workbook snapshot away from the UI thread.
+    private func persistRowsInBackground(_ nextRows: [SheetRow]) async -> String? {
+        guard !isSaving else { return "Please wait for the current save to finish." }
+        guard var nextWorkbook = workbook, let url = fileURL else { return "Choose an Excel file before making changes." }
+        nextWorkbook.rows = nextRows
+        let writeWorkbook = nextWorkbook
+        let expectedData = loadedData
+        let expectedStamp = loadedStamp
+
+        isSaving = true
+        let outcome = await Task.detached(priority: .userInitiated) {
+            if let stamp = expectedStamp, Store.modDate(url) != stamp,
+               let current = try? Store.readData(url), current != expectedData {
+                return SnapshotSaveResult.conflict
+            }
+            do {
+                let data = try writeWorkbook.serialize()
+                try Store.writeData(data, to: url)
+                return SnapshotSaveResult.saved(data, Store.modDate(url))
+            } catch {
+                return SnapshotSaveResult.failed(error.localizedDescription)
+            }
+        }.value
+        isSaving = false
+
+        switch outcome {
+        case .saved(let data, let stamp):
+            rows = nextRows
+            workbook = nextWorkbook
+            loadedData = data
+            loadedStamp = stamp
+            rebuild()
+            return nil
+        case .conflict:
+            _ = try? load()
+            return "The spreadsheet changed in another app and was reloaded. Please repeat your change."
+        case .failed(let message):
+            return "Couldn't save the spreadsheet (\(message)). Your change was not applied."
+        }
+    }
+
+    private func record(_ entries: [LogEntry]) {
+        log.insert(contentsOf: entries.reversed(), at: 0)
+        if log.count > 300 { log.removeLast(log.count - 300) }
+        if let encoded = try? JSONEncoder().encode(log) { UserDefaults.standard.set(encoded, forKey: logKey) }
     }
 
     /// Runs a change, writes it to the spreadsheet, and rolls back if the write fails.
@@ -231,9 +311,7 @@ final class Store {
         rebuild()
         switch save() {
         case .ok:
-            log.insert(contentsOf: entries.reversed(), at: 0)
-            if log.count > 300 { log.removeLast(log.count - 300) }
-            if let d = try? JSONEncoder().encode(log) { UserDefaults.standard.set(d, forKey: logKey) }
+            record(entries)
         case .failed(let msg):
             rows = backup; rebuild()
             error = "Couldn't save to the spreadsheet (\(msg)). Your change was not applied."
@@ -254,21 +332,23 @@ final class Store {
     // MARK: Edits (each one is saved to the Excel file immediately)
 
     /// Stock arrived: put the SKU into one or more bins.
-    func assign(sku: String, bin: String) -> String? {
+    func assign(sku: String, bin: String) async -> String? {
         let codes = BinCode.parse(bin)
         guard !codes.isEmpty else { return "Enter a bin such as A12." }
         guard let existing = itemIndex[sku], let base = rows.first(where: { $0.sku == sku }) else { return "Unknown SKU." }
         let fresh = codes.filter { !existing.bins.contains($0) }
         guard !fresh.isEmpty else { return "\(sku) is already in \(codes.joined(separator: ", "))." }
-        apply(fresh.map { entry("In", sku, $0) }) {
-            for c in fresh {
-                if let i = rows.firstIndex(where: { $0.sku == sku && BinCode.parse($0.bin).isEmpty }) {
-                    rows[i].bin = c
-                } else {
-                    rows.append(extraRow(like: base, bin: c))
-                }
+        var nextRows = rows
+        for c in fresh {
+            if let i = nextRows.firstIndex(where: { $0.sku == sku && BinCode.parse($0.bin).isEmpty }) {
+                nextRows[i].bin = c
+            } else {
+                nextRows.append(extraRow(like: base, bin: c))
             }
         }
+        let entries = fresh.map { entry("In", sku, $0) }
+        if let message = await persistRowsInBackground(nextRows) { return message }
+        record(entries)
         return nil
     }
 
@@ -312,17 +392,21 @@ final class Store {
         return nil
     }
 
-    func addItem(sku rawSku: String, name: String, gender: String, category: String, family: String, bin: String) -> String? {
+    func addItem(sku rawSku: String, name: String, gender: String, category: String, family: String, bin: String) async -> String? {
         let sku = rawSku.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !sku.isEmpty else { return "SKU is required." }
         guard itemIndex[sku] == nil else { return "SKU \(sku) already exists." }
+        guard !isSaving else { return "Please wait for the current save to finish." }
+        guard workbook != nil, fileURL != nil else { return "Choose an Excel file before adding a SKU." }
+
         let codes = BinCode.parse(bin)
         let main = SheetRow(gender: gender.trimmed, category: category.trimmed, family: family.trimmed,
                             sku: sku, name: name.trimmed, bin: codes.first ?? "")
-        apply([LogEntry(kind: "New", sku: sku, name: main.name, bin: codes.joined(separator: ","))]) {
-            rows.append(main)
-            for c in codes.dropFirst() { rows.append(extraRow(like: main, bin: c)) }
-        }
+        var nextRows = rows
+        nextRows.append(main)
+        for c in codes.dropFirst() { nextRows.append(extraRow(like: main, bin: c)) }
+        if let message = await persistRowsInBackground(nextRows) { return message }
+        record([LogEntry(kind: "New", sku: sku, name: main.name, bin: codes.joined(separator: ","))])
         return nil
     }
 
