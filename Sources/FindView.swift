@@ -373,7 +373,7 @@ struct EditItemSheet: View {
         let prefix = rawSKU.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
         let suggestion: String?
         if prefix.hasPrefix("K1") || prefix.hasPrefix("K3") { suggestion = "Men" }
-        else if prefix.hasPrefix("K4") { suggestion = "Women" }
+        else if prefix.hasPrefix("K2") || prefix.hasPrefix("K4") { suggestion = "Women" }
         else { suggestion = nil }
         guard let suggestion, gender.trimmed.isEmpty || gender == lastAutoGender else { return }
         gender = suggestion
